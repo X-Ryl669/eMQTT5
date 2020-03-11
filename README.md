@@ -30,7 +30,7 @@ In all cases, almost all methods avoid allocating memory on the heap (stack is p
 There is only few places where heap allocations are performed and they are documented in there respective documentation.
 Typically, user-generated `Properties` are allocating on the heap (in your code, not here) and user-generated `SubscribeTopic` are also allocating on the heap (in your code, not here). 
 
-An example software is provided that's implementing a complete MQTTv5 client in `MQTTc.cpp` where you can subscribe/publish to a topic.
+An example software is provided that's implementing a complete MQTTv5 client in `MQTTc.cpp` where you can subscribe/publish to a topic. This file, once built on a Linux AMD64 system takes 151kB of binary space without any dependencies.
 
 ## Porting to a new platform
 The implementation for a new platform is very quick. 
