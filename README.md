@@ -25,17 +25,23 @@ For many reasons:
 
 ## API Documentation
 There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented in the `include/Protocol/MQTT.hpp` file. 
+
 The higher level API is documented in the `include/Network/Client/MQTT.hpp` file where you only need to call methods of the `Network::Client::MQTTv5` class (all serialization is done for you).
+
 In all cases, almost all methods avoid allocating memory on the heap (stack is prefered whenever possible).
 There is only few places where heap allocations are performed and they are documented in there respective documentation.
+
 Typically, user-generated `Properties` are allocating on the heap (in your code, not here) and user-generated `SubscribeTopic` are also allocating on the heap (in your code, not here). 
 
 An example software is provided that's implementing a complete MQTTv5 client in `MQTTc.cpp` where you can subscribe/publish to a topic. This file, once built on a Linux AMD64 system takes 151kB of binary space without any dependencies.
 
 ## Porting to a new platform
 The implementation for a new platform is very quick. 
+
 The only dependencies for this client rely on a `Lock` class to protect again multithreading access/reentrancy and a `ScopedLock` RAII class for acquiring and releasing the lock upon scope leaving. A default spinlock class is provided in the minimal implementation.
+
 BSD socket API is used with only minimum feature set (only `recv`, `send`, `getaddrinfo`, `select`, `socket`, `close/closesocket`, `setsockopt` is required).  
+
 The only options used for socket (optional, can be disabled) are: `TCP_NODELAY`, `fcntl/O_NONBLOCK`
 If your platform supports `SO_RCVTIMEO/SO_SNDTIMEO` then the binary code size can be reduced even more.
 
