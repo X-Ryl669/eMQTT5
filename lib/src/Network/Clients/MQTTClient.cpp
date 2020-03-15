@@ -332,7 +332,6 @@ namespace Network { namespace Client {
         /** Acquire the lock */
         inline void acquire() volatile
         {
-            int c = 0;
             while (state.exchange(true, std::memory_order_acq_rel)) 
             {
                 // Put a sleep method here (using select here since it's cross platform in BSD socket API)
@@ -448,7 +447,6 @@ namespace Network { namespace Client {
             fd_set set;
             FD_ZERO(&set);
             FD_SET(socket, &set);
-            int ret = 0;
             // Then select
             return ::select(socket + 1, reading ? &set : NULL, writing ? &set : NULL, NULL, timeoutMs < 0 ? NULL : &tv);
         }

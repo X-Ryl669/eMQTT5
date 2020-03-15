@@ -7,9 +7,38 @@
 #include "../../Platform/Platform.hpp"
 
 #if (MQTTDumpCommunication == 1)
-  // We need fast string too
-  #include "../../Strings/Strings.hpp"
-  #include "../../Utils/Dump.hpp"
+  // Because all projects are different, it's hard to give a generic method for dumping elements.
+  // So we end up with only limited dependencies:  
+  // - a string class that concatenate with operator +=
+  // - the string class has MQTTStringGetData(MQTTString instance) method returning a pointer to the string array 
+  // - the string class has MQTTStringGetLength(MQTTString instance) method returning the array size of the string 
+  // - a hexadecimal dumping method
+  // - a printf-like formatting function
+
+  // Feel free to define the string class and method to use beforehand if you want to use your own.
+  // If none provided, we use's std::string class (or ClassPath's FastString depending on the environment)
+  #ifndef MQTTStringPrintf
+    static MQTTString MQTTStringPrintf(const char * format, ...)
+    {
+        va_list argp;
+        va_start(argp, format);
+        char buf[512];
+        // We use vasprintf extension to avoid dual parsing of the format string to find out the required length
+        int err = vsnprintf(buf, sizeof(buf), format, argp);
+        va_end(argp);
+        if (err <= 0) return MQTTString();
+        if (err >= (int)sizeof(buf)) err = (int)(sizeof(buf) - 1);
+        buf[err] = 0;
+        return MQTTString(buf, (size_t)err);
+    }
+  #endif
+  #ifndef MQTTHexDump 
+    static void MQTTHexDump(MQTTString & out, const uint8* bytes, const uint32 length)
+    {
+        for (uint32 i = 0; i < length; i++) 
+            out += MQTTStringPrintf("%02X", bytes[i]);
+    }
+  #endif
 #endif
 
 /** All network protocol specific structure or enumerations are declared here */
@@ -55,7 +84,7 @@ namespace Protocol
 
 #if MQTTDumpCommunication == 1
                 /** Dump the serializable to the given string */
-                virtual void dump(Strings::FastString & out, const int indent = 0) = 0;
+                virtual void dump(MQTTString & out, const int indent = 0) = 0;
 #endif 
 
                 /** Check if this object is correct after deserialization */
@@ -71,7 +100,7 @@ namespace Protocol
                 uint32 copyInto(uint8 *) const { return 0; }
                 uint32 readFrom(const uint8 *, uint32) { return 0; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*s%s\n", indent, "", "<none>"); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*s%s\n", indent, "", "<none>"); }
 #endif
                 bool check() const { return true; }
             };
@@ -83,7 +112,7 @@ namespace Protocol
                 uint32 copyInto(uint8 *) const { return 0; }
                 uint32 readFrom(const uint8 *, uint32) { return BadData; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*s%s\n", indent, "", "<invalid>"); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*s%s\n", indent, "", "<invalid>"); }
 #endif
                 bool check() const { return false; }
             };
@@ -139,9 +168,9 @@ namespace Protocol
                 // All visitor will have a getValue() method, but the returned type depends on the visitor and thus,
                 // can not be declared polymorphically
 #if MQTTDumpCommunication == 1
-                virtual void dump(Strings::FastString & out, const int indent = 0) 
+                virtual void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*s", (int)indent, "");
+                    out += MQTTStringPrintf("%*s", (int)indent, "");
                     // Voluntary incomplete
                 }
 #endif                
@@ -158,7 +187,7 @@ namespace Protocol
                 T & getValue() { return *static_cast<T*>(this); }
                 operator T& () { return getValue(); } 
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
                     static_cast<T*>(this)->dump(out, indent);
                 }
@@ -184,7 +213,7 @@ namespace Protocol
                     return sizeof(value); 
                 }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
                     MemMappedVisitor::dump(out, indent);
                     out += getValue();
@@ -212,7 +241,7 @@ namespace Protocol
                     return sizeof(value); 
                 }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
                     MemMappedVisitor::dump(out, indent);
                     out += getValue();
@@ -268,7 +297,7 @@ namespace Protocol
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
 #endif
                 
                 /** Default constructor */
@@ -277,9 +306,9 @@ namespace Protocol
                 DynamicString(const char * text) : length(text ? strlen(text) : 0), data((char*)Platform::malloc(length)) { memcpy(data, text, length); }
 #if (MQTTDumpCommunication == 1)
                 /** Construct from a FastString */
-                DynamicString(const Strings::FastString & text) : length(text.getLength()), data((char*)Platform::malloc(length)) { memcpy(data, (const char*)text, length); }
+                DynamicString(const MQTTString & text) : length(MQTTStringGetLength(text)), data((char*)Platform::malloc(length)) { memcpy(data, MQTTStringGetData(text), length); }
                 /** Construct from a FastString */
-                DynamicString(const Strings::VerySimpleReadOnlyString & text) : length(text.getLength()), data((char*)Platform::malloc(length)) { memcpy(data, text.getData(), length); }
+                DynamicString(const MQTTROString & text) : length(MQTTStringGetLength(text)), data((char*)Platform::malloc(length)) { memcpy(data, MQTTStringGetData(text), length); }
 #endif
                 /** Copy constructor */
                 DynamicString(const DynamicString & other) : length(other.length), data((char*)Platform::malloc(length)) { memcpy(data, other.data, length); }
@@ -292,11 +321,11 @@ namespace Protocol
 
 #if (MQTTDumpCommunication == 1)
                 /** Convert to a ReadOnlyString */
-                operator Strings::VerySimpleReadOnlyString() const { return Strings::VerySimpleReadOnlyString(data, length); }
+                operator MQTTROString() const { return MQTTROString(data, length); }
                 /** Comparison operator */
-                bool operator != (const Strings::VerySimpleReadOnlyString & other) const { return length != other.getLength() || memcmp(data, other.getData(), length); }
+                bool operator != (const MQTTROString & other) const { return length != MQTTStringGetLength(other) || memcmp(data, MQTTStringGetData(other), length); }
                 /** Comparison operator */
-                bool operator == (const Strings::VerySimpleReadOnlyString & other) const { return length == other.getLength() && memcmp(data, other.getData(), length) == 0; }
+                bool operator == (const MQTTROString & other) const { return length == MQTTStringGetLength(other) && memcmp(data, MQTTStringGetData(other), length) == 0; }
 #endif                
                 /** Copy operator */
                 DynamicString & operator = (const DynamicString & other) { if (this != &other) { this->~DynamicString(); length = other.length; data = (char*)Platform::malloc(length); memcpy(data, other.data, length); } return *this; }
@@ -335,7 +364,7 @@ namespace Protocol
                 /** Check if the value is correct */
                 bool check() const { return key.check() && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
 #endif
 
                 /** Default constructor */
@@ -392,7 +421,7 @@ namespace Protocol
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sBin (%d bytes):", (int)indent, "", (int)length); Utils::dumpToHexString(out, data, length); out += "\n"; }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
                 
                 /** Construct from a memory block */
@@ -446,7 +475,7 @@ namespace Protocol
                 bool check() const { return data ? length : length == 0; }
 
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
 #endif
 
 
@@ -507,7 +536,7 @@ namespace Protocol
                 /** Check if the value is correct */
                 bool check() const { return key.check() && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
 #endif
 
                 /** Default constructor */
@@ -553,7 +582,7 @@ namespace Protocol
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sBin (%d bytes):", (int)indent, "", (int)length); Utils::dumpToHexString(out, data, length); out += "\n"; }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
                 
                 /** Construct from a memory block */
@@ -603,8 +632,11 @@ namespace Protocol
                     switch (pseudoLog)
                     {
                     case 3: value[pseudoLog--] = (other >> 21); other &= 0x1FFFFF; carry = 0x80; // Intentionally no break here
+                    // fall through
                     case 2: value[pseudoLog--] = (other >> 14) | carry; other &= 0x3FFF; carry = 0x80; // Same
+                    // fall through
                     case 1: value[pseudoLog--] = (other >>  7) | carry; other &= 0x7F; carry = 0x80; // Ditto
+                    // fall through
                     case 0: value[pseudoLog--] = other | carry; return *this;
                     default:
                     case 4: value[0] = value[1] = value[2] = value[3] = 0xFF; size = 0; return *this;  // This is an error anyway
@@ -619,8 +651,11 @@ namespace Protocol
                     {
                     case 0: return 0; // This is an error anyway
                     case 4: o = value[3] << 21;            // Intentionally no break here
+                    // fall through
                     case 3: o |= (value[2] & 0x7F) << 14;  // Same
+                    // fall through
                     case 2: o |= (value[1] & 0x7F) << 7;   // Ditto
+                    // fall through
                     case 1: o |= value[0] & 0x7F; // Break is useless here too
                     }
                     return o;
@@ -649,10 +684,10 @@ namespace Protocol
                         value[size] = buffer[size];
                         if (value[size++] < 0x80) break;
                     }
-                    return size < 4 ? size : BadData;
+                    return size < 4 ? size : (uint32)BadData;
                 }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sVBInt: %u\n", (int)indent, "", (uint32)*this); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sVBInt: %u\n", (int)indent, "", (uint32)*this); }
 #endif
 
                 /** Default constructor */
@@ -683,8 +718,11 @@ namespace Protocol
                     default:
                     case 0: return BadData; // This is an error anyway
                     case 4: o = buffer[3] << 21;            // Intentionally no break here
+                    // fall through
                     case 3: o |= (buffer[2] & 0x7F) << 14;  // Same
+                    // fall through
                     case 2: o |= (buffer[1] & 0x7F) << 7;   // Ditto
+                    // fall through
                     case 1: o |= buffer[0] & 0x7F; // Break is useless here too
                     }
                     return size;
@@ -837,7 +875,7 @@ namespace Protocol
                 bool                check() const { return (typeAndFlags & 0xF) == flags; }
                 static bool         check(const uint8 flag) { return flag == flags; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sHeader: (type %s, no flags)\n", (int)indent, "", getControlPacketName(type)); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type %s, no flags)\n", (int)indent, "", getControlPacketName(type)); }
 #endif
                 
                 FixedHeaderType() : typeAndFlags(((uint8)type << 4) | flags) {}
@@ -863,7 +901,7 @@ namespace Protocol
                 bool                check() const { return true; }
                 static bool         check(const uint8 flag) { return true; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sHeader: (type PUBLISH, retain %d, QoS %d, dup %d)\n", (int)indent, "", isRetain(), getQoS(), isDup()); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type PUBLISH, retain %d, QoS %d, dup %d)\n", (int)indent, "", isRetain(), getQoS(), isDup()); }
 #endif
 
 
@@ -1133,10 +1171,10 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    out += Strings::FastString::Print("%*s", indent+2, ""); out += value; out += "\n"; 
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*s", indent+2, ""); out += value; out += "\n"; 
                 }
 #endif
 
@@ -1185,9 +1223,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
                     value.dump(out, indent + 2); 
                 }
 #endif
@@ -1224,9 +1262,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
                     value.dump(out, indent + 2); 
                 }
 #endif
@@ -1264,9 +1302,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
                     value.dump(out, indent + 2); 
                 }
 #endif
@@ -1304,9 +1342,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
                     value.dump(out, indent + 2); 
                 }
 #endif
@@ -1343,9 +1381,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
                     value.dump(out, indent + 2); 
                 }
 #endif
@@ -1387,9 +1425,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
                     value.dump(out, indent + 2); 
                 }
 #endif
@@ -1425,9 +1463,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
                     value.dump(out, indent + 2); 
                 }
 #endif
@@ -1680,9 +1718,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return length.check() && head ? head->check() : true; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
+                    out += MQTTStringPrintf("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
                     if (!(uint32)length) return;
                     PropertyListNode * c = head;
                     while (c && c->property) {
@@ -1831,14 +1869,14 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return length.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
+                    out += MQTTStringPrintf("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
                     if (!(uint32)length) return;
                     PropertyType type; uint32 offset = 0;
                     while (MemMappedVisitor * visitor = getProperty(type, offset))
                     {
-                        out += Strings::FastString::Print("%*sType %s\n", indent+2, "", PrivateRegistry::getPropertyName(type));
+                        out += MQTTStringPrintf("%*sType %s\n", indent+2, "", PrivateRegistry::getPropertyName(type));
                         visitor->dump(out, indent + 4);
                     }
                 }
@@ -1850,7 +1888,7 @@ namespace Protocol
                     if (!check()) return false;
                     uint32 o = 0;
                     PropertyType t = BadProperty; 
-                    while (MemMappedVisitor * visitor = getProperty(t, o))
+                    while (getProperty(t, o))
                     {
                         if (!isAllowedProperty(t, type)) return false;
                     }
@@ -1943,7 +1981,8 @@ namespace Protocol
                     @return The number of bytes read from the buffer, or 0xFF upon error */
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
-                    if (next) next->suicide(); next = 0;
+                    if (next) next->suicide(); 
+                    next = 0;
                     uint32 o = 0, s = topic.readFrom(buffer, bufLength);
                     if (isError(s)) return s;
                     buffer += s; bufLength -= s; o += s;
@@ -1961,9 +2000,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return reserved == 0 && retainAsPublished != 3 && QoS != 3 && topic.check() && (next ? next->check() : true); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", QoS, nonLocal, retainAsPublished, retainHandling); topic.dump(out, indent); 
+                    out += MQTTStringPrintf("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", QoS, nonLocal, retainAsPublished, retainHandling); topic.dump(out, indent); 
                     if (next) next->dump(out, indent);
                 }
 #endif
@@ -2018,7 +2057,8 @@ namespace Protocol
                     @return The number of bytes read from the buffer, or 0xFF upon error */
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
-                    if (next) next->suicide(); next = 0;
+                    if (next) next->suicide(); 
+                    next = 0;
                     uint32 o = 0, s = topic.readFrom(buffer, bufLength);
                     if (isError(s)) return s;
                     buffer += s; bufLength -= s; o += s;
@@ -2034,9 +2074,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return topic.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sUnsubscribe: ", (int)indent, ""); topic.dump(out, indent); 
+                    out += MQTTStringPrintf("%*sUnsubscribe: ", (int)indent, ""); topic.dump(out, indent); 
                     if (next) next->dump(out, indent);
                 }
 #endif
@@ -2173,9 +2213,9 @@ namespace Protocol
                 /** Check if this header is correct */
                 bool check() const { return reserved == 0 && willQoS < 3 && memcmp(protocolName, expectedProtocolName(), sizeof(protocolName)) == 0; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sCONNECT packet (clean %d, will %d, willQoS %d, willRetain %d, password %d, username %d, keepAlive: %d)\n", (int)indent, "", cleanStart, willFlag, willQoS, willRetain, passwordFlag, usernameFlag, keepAlive); 
+                    out += MQTTStringPrintf("%*sCONNECT packet (clean %d, will %d, willQoS %d, willRetain %d, password %d, username %d, keepAlive: %d)\n", (int)indent, "", cleanStart, willFlag, willQoS, willRetain, passwordFlag, usernameFlag, keepAlive); 
                 }
 #endif
 
@@ -2204,7 +2244,7 @@ namespace Protocol
                 /** Check if this header is correct */
                 bool check() const { return (acknowledgeFlag & 0xFE) == 0; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sCONNACK packet (ack %u, reason %u)\n", (int)indent, "", acknowledgeFlag, reasonCode); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sCONNACK packet (ack %u, reason %u)\n", (int)indent, "", acknowledgeFlag, reasonCode); }
 #endif
 
                 /** No action from the packet header to the behaviour here */
@@ -2245,7 +2285,7 @@ namespace Protocol
                 }
 
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sControl packet (id 0x%04X)\n", (int)indent, "", packetID); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sControl packet (id 0x%04X)\n", (int)indent, "", packetID); }
 #endif
 
                 
@@ -2290,7 +2330,7 @@ namespace Protocol
                 }
 
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sControl packet (id 0x%04X, reason %u)\n", (int)indent, "", packetID, reasonCode); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sControl packet (id 0x%04X, reason %u)\n", (int)indent, "", packetID, reasonCode); }
 #endif
 
                 
@@ -2346,7 +2386,7 @@ namespace Protocol
                     return 1;
                 }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sDISCONNECT packet (reason %u)\n", (int)indent, "", reasonCode); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sDISCONNECT packet (reason %u)\n", (int)indent, "", reasonCode); }
 #endif
                 
                 /** The default constructor */
@@ -2381,7 +2421,7 @@ namespace Protocol
                     return 1;
                 }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sAUTH packet (reason %u)\n", (int)indent, "", reasonCode); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sAUTH packet (reason %u)\n", (int)indent, "", reasonCode); }
 #endif
                 
                 /** The default constructor */
@@ -2441,7 +2481,7 @@ namespace Protocol
                 /** Check if the flags says there is a packet identifier */
                 inline bool hasPacketID() const { return flags && (*flags & 6) > 0; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sPUBLISH packet (id 0x%04X): ", (int)indent, "", packetID); topicName.dump(out, 0); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPUBLISH packet (id 0x%04X): ", (int)indent, "", packetID); topicName.dump(out, 0); }
 #endif
 
                 /** The default constructor */
@@ -2514,7 +2554,7 @@ namespace Protocol
                 }
 
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sWill message\n", (int)indent, ""); willProperties.dump(out, indent + 2); willTopic.dump(out, indent + 2); willPayload.dump(out, indent + 2); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sWill message\n", (int)indent, ""); willProperties.dump(out, indent + 2); willTopic.dump(out, indent + 2); willPayload.dump(out, indent + 2); }
 #endif
 
 
@@ -2619,13 +2659,13 @@ namespace Protocol
                     return true;
                 }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sCONNECT payload\n", (int)indent, ""); 
-                    out += Strings::FastString::Print("%*sClientID: ", (int)indent + 2, ""); clientID.dump(out, 0);
+                    out += MQTTStringPrintf("%*sCONNECT payload\n", (int)indent, ""); 
+                    out += MQTTStringPrintf("%*sClientID: ", (int)indent + 2, ""); clientID.dump(out, 0);
                     if (fixedHeader->willFlag) willMessage->dump(out, indent + 2);  // Not testing pointer here, since it's a correctly constructed object is expected
-                    out += Strings::FastString::Print("%*sUsername: ", (int)indent + 2, ""); username.dump(out, 0);
-                    out += Strings::FastString::Print("%*sPassword: ", (int)indent + 2, ""); password.dump(out, 0);
+                    out += MQTTStringPrintf("%*sUsername: ", (int)indent + 2, ""); username.dump(out, 0);
+                    out += MQTTStringPrintf("%*sPassword: ", (int)indent + 2, ""); password.dump(out, 0);
                 }
 #endif
 
@@ -2682,7 +2722,7 @@ namespace Protocol
                 /** Check if this payload is valid */
                 bool check() const { return true; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sPayload (length: %u)\n", (int)indent, "", size); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
 #endif                
                 PayloadWithData() : data(0), size(0) {}
                 ~PayloadWithData() { free0(data); size = 0; }
@@ -2723,7 +2763,7 @@ namespace Protocol
                 /** Check if this payload is valid */
                 bool check() const { return true; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) { out += Strings::FastString::Print("%*sPayload (length: %u)\n", (int)indent, "", size); }
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
 #endif                
                 
                 PayloadWithData() : data(0), size(0) {}
@@ -2761,9 +2801,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return topics ? topics->check() : true; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sSUBSCRIBE Payload\n", (int)indent, ""); 
+                    out += MQTTStringPrintf("%*sSUBSCRIBE Payload\n", (int)indent, ""); 
                     if (topics) topics->dump(out, indent + 2);
                 }
 #endif                
@@ -2806,9 +2846,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return topics ? topics->check() : true; }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*sUNSUBSCRIBE Payload\n", (int)indent, ""); 
+                    out += MQTTStringPrintf("%*sUNSUBSCRIBE Payload\n", (int)indent, ""); 
                     if (topics) topics->dump(out, indent + 2);
                 }
 #endif                
@@ -2907,9 +2947,9 @@ namespace Protocol
 #endif                
 
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*s%s control packet (rlength: %u)\n", (int)indent, "", getControlPacketName(type), (uint32)remLength); 
+                    out += MQTTStringPrintf("%*s%s control packet (rlength: %u)\n", (int)indent, "", getControlPacketName(type), (uint32)remLength); 
                     header.dump(out, indent + 2);
                     fixedVariableHeader.dump(out, indent + 2);
                     props.dump(out, indent + 2);
@@ -3014,9 +3054,9 @@ namespace Protocol
                 /** Check if this property is valid */
                 bool check() const { return header.check(); }
 #if MQTTDumpCommunication == 1
-                void dump(Strings::FastString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += Strings::FastString::Print("%*s%s control packet\n", (int)indent, "", getControlPacketName(type)); 
+                    out += MQTTStringPrintf("%*s%s control packet\n", (int)indent, "", getControlPacketName(type)); 
                     header.dump(out, indent + 2);
                 }
 #endif                

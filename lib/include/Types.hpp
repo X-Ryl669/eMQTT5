@@ -11,34 +11,6 @@
     #define _MAC 1
 #endif
 
-#if (_LINUX == 1) || (_MAC == 1)
-#if __GNUC__ >= 4
-    #define HAS_ATOMIC_BUILTIN 1
-    #if __GCC_ATOMIC_LLONG_LOCK_FREE == 1
-        #define HAS_ATOMIC_BUILTIN64 1
-    #else
-        #if __x86_64__
-	       #define HAS_ATOMIC_BUILTIN64 1
-	#elif __aarch64__
-	       #define HAS_ATOMIC_BUILTIN64 1
-        #elif __ARMEL__
-	       #define NO_ATOMIC_BUILTIN64 1 // Should change that as soon as it's supported by the libs
-        #else
-            #if defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_8)
-        	    #define HAS_ATOMIC_BUILTIN64 1
-            #else
-                #define NO_ATOMIC_BUILTIN64 1
-            #endif
-        #endif
-    #endif
-#endif
-#elif defined(_WIN32)
-    #if _M_AMD64
-        #define HAS_ATOMIC_BUILTIN64 1
-    #else
-        #define NO_ATOMIC_BUILTIN64 1
-    #endif
-#endif
 
 // Check whether we can include <atomic>
 #if defined(__clang__)
@@ -55,11 +27,8 @@
 #endif
 
 // Safety checks for this configuration
-#if (HAS_ATOMIC_BUILTIN != 1 && !defined(_WIN32))
-  #error You can not build the AtomicClass on this platform, since it does not have atomic builtins.
-#else
-  #include <atomic> 
-#endif
+#include <atomic> 
+
 
 // Try to find out the endianness of the target system (this might fail)
 #if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
@@ -240,6 +209,46 @@
     #define enterAtomicSection() 1
     /** Unless you run on embedded OS, you'll not need those functions */
     #define leaveAtomicSection(X) do {} while(0)
+#elif defined(ESP_PLATFORM)
+    	#ifndef DontWantUINT8
+		typedef unsigned char uint8;
+	#endif
+	#ifndef DontWantUINT32
+		typedef unsigned int uint32;
+	#endif
+	#ifndef DontWantUINT16
+		typedef unsigned short uint16;
+	#endif
+
+	#ifndef DontWantUINT64
+        typedef unsigned long long uint64;
+    #endif
+
+	#ifndef DontWantINT8
+		typedef signed char int8;
+	#endif
+	#ifndef DontWantINT32
+		typedef signed int int32;
+	#endif
+	#ifndef DontWantINT16
+		typedef signed short int16;
+	#endif
+
+	#ifndef DontWantINT64
+        typedef long long int64;
+    #endif
+        #ifndef DontWantNativeInt
+        typedef intptr_t nativeint;
+    #endif
+
+    #define PF_LLD  "%lld"
+    #define PF_LLU  "%llu"
+
+    /** Unless you run on embedded OS, you'll not need those functions
+        @return int value you need to pass to leaveAtomicSection */
+    extern "C" int enterAtomicSection();
+    /** Unless you run on embedded OS, you'll not need those functions */
+    extern "C" void leaveAtomicSection(int);
 
 #else
     // Prevent the types.h file to define the fd_set type (stupid definition by the way)

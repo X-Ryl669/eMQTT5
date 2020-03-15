@@ -20,14 +20,14 @@ namespace Platform
         /** Destruction */
         ~StackHeapBuffer() { if (size > 0) { ::free(ptr); ptr = 0; } }
         /** Main operator */
-        operator void * const () const { return ptr; }
+        operator void * () const { return ptr; }
         /** A conversion operator */
         template <typename U>
-        operator U * const () const { return static_cast<U* const>(ptr); }
+        operator U * () const { return static_cast<U* const>(ptr); }
         /** Get the buffer size */
-        const size_t getSize() const { return size > 0 ? (size_t)size : (size_t)-size; }
+        size_t getSize() const { return size > 0 ? (size_t)size : (size_t)-size; }
         /** Check if the allocation is on the stack or on the heap */
-        const bool onStack() const { return size < 0; }
+        bool onStack() const { return size < 0; }
     };
 
 
@@ -52,7 +52,7 @@ namespace Platform
 
                 // Use myBuffer like this:
                 strcpy((char*)myBuffer, "something");
-                // No need to free or delete the buffer (it's done for you) at end of function or scope.
+                // No need to free or delete the buffer (it's done for you) at end of **function** (or scope if allocated on heap).
             }
         @endcode
 
