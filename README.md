@@ -21,7 +21,7 @@ For many reasons:
 | [Espressif esp-mqtt](https://github.com/espressif/esp-mqtt)|3.1|Apache 2.0|12kB (115kb + ?)| No (ESP32)|
 | [wolfMQTT](https://github.com/wolfSSL/wolfMQTT)|5.0|GPL 2.0|not tested due to license|Yes (Posix+Win32+Arduino)|
 | [mosquitto](https://github.com/eclipse/mosquitto/)|5.0|EPL|large | Yes requires Posix|
-| eMQTT5|5.0|MIT||Yes (Posix+Win32+Lwip(for ex: ESP32))|
+| eMQTT5|5.0|MIT|24kB (not dep)|Yes (Posix+Win32+Lwip(for ex: ESP32))|
 
 ## API Documentation
 There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented in the `include/Protocol/MQTT.hpp` file. 
@@ -31,9 +31,9 @@ The higher level API is documented in the `include/Network/Client/MQTT.hpp` file
 In all cases, almost all methods avoid allocating memory on the heap (stack is prefered whenever possible).
 There is only few places where heap allocations are performed and they are documented in there respective documentation.
 
-Typically, user-generated `Properties` are allocating on the heap (in your code, not here) and user-generated `SubscribeTopic` are also allocating on the heap (in your code, not here). 
+Typically, user-generated [Properties](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1672) are allocating on the heap (in your code, not here) and user-generated [SubscribeTopic](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1938)  are also allocating on the heap (in your code, not here). 
 
-An example software is provided that's implementing a complete MQTTv5 client in `MQTTc.cpp` where you can subscribe/publish to a topic. This file, once built on a Linux AMD64 system takes 151kB of binary space without any dependencies.
+An example software is provided that's implementing a complete MQTTv5 client in [MQTTc.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master/tests/MQTTc.cpp) where you can subscribe/publish to a topic. This file, once built on a Linux AMD64 system takes 80kB of binary space without any dependencies.
 
 ## Porting to a new platform
 The implementation for a new platform is very quick. 
@@ -42,9 +42,8 @@ The only dependencies for this client rely on a `Lock` class to protect again mu
 
 BSD socket API is used with only minimum feature set (only `recv`, `send`, `getaddrinfo`, `select`, `socket`, `close/closesocket`, `setsockopt` is required).  
 
-The only options used for socket (optional, can be disabled) are: `TCP_NODELAY`, `fcntl/O_NONBLOCK`
-If your platform supports `SO_RCVTIMEO/SO_SNDTIMEO` then the binary code size can be reduced even more.
+The only options used for socket (optional, can be disabled) are: `TCP_NODELAY`, `fcntl/O_NONBLOCK`, `SO_SNDTIMEO`, `SO_RCVTIMEO`)
 
-Please check the `MQTTClient.cpp` file for two different examples of platform support (from complete, deterministic, Posix based implementation to simplest embedded system)
+Please check the [MQTTClient.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master/lib/src/Network/Clients/MQTTClient.cpp) file for two different examples of platform support (from complete, deterministic, Posix based implementation to simplest embedded system)
 
 

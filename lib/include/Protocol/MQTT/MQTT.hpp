@@ -81,15 +81,24 @@ namespace Protocol
                     @param buffer       A pointer to an allocated buffer
                     @param bufLength    The length of the buffer in bytes
                     @return The number of bytes read from the buffer, or a LocalError upon error (use isError() to test for it) */
-                virtual uint32 readFrom(const uint8 * buffer, uint32 bufLength) = 0;
+                virtual uint32 readFrom(const uint8 * buffer, uint32 bufLength) 
+#if MQTTClientOnlyImplementation == 1
+                {
+                    return BadData;
+                }
+#else
+                = 0;
+#endif
 
 #if MQTTDumpCommunication == 1
                 /** Dump the serializable to the given string */
                 virtual void dump(MQTTString & out, const int indent = 0) = 0;
 #endif 
 
+#if MQTTAvoidValidation != 1
                 /** Check if this object is correct after deserialization */
                 virtual bool check() const { return true; }
+#endif
                 /** Required destructor */
                 virtual ~Serializable() {}
             };
@@ -103,7 +112,6 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*s%s\n", indent, "", "<none>"); }
 #endif
-                bool check() const { return true; }
             };
             
             /** Invalid serialization used as an escape path */
@@ -115,7 +123,9 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*s%s\n", indent, "", "<invalid>"); }
 #endif
+#if MQTTAvoidValidation != 1
                 bool check() const { return false; }
+#endif
             };
             
             /** A serializable with suicide characteristics 
@@ -232,9 +242,7 @@ namespace Protocol
                 char   data[];
                 
                 /** Call this method to read the structure when it's casted from the network buffer */
-                void fromNetwork() { length = ntohs(length); }
-                /** Call this method before sending the structure to the network */
-                void toNetwork()   { length = htons(length); }
+                void swapNetwork() { length = BigEndian(length); }
             };
             
             /** A string that's memory managed itself */
@@ -265,8 +273,10 @@ namespace Protocol
                     memcpy(data, buffer+2, length);
                     return (uint32)length+2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
 #endif
@@ -327,8 +337,10 @@ namespace Protocol
                     if (isError(s)) return s;
                     return s+o;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return key.check() && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
 #endif
@@ -351,9 +363,7 @@ namespace Protocol
                 uint8  data[];
                 
                 /** Call this method to read the structure when it's casted from the network buffer */
-                void fromNetwork() { length = ntohs(length); }
-                /** Call this method before sending the structure to the network */
-                void toNetwork()   { length = htons(length); }
+                void swapNetwork() { length = BigEndian(length); }
             };
             
             /** A dynamic binary data, with self managed memory */
@@ -384,8 +394,10 @@ namespace Protocol
                     memcpy(data, buffer+2, length);
                     return (uint32)length + 2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
@@ -436,10 +448,10 @@ namespace Protocol
                     return (uint32)length + 2;
                 }
 
-
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
-
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
 #endif
@@ -499,8 +511,10 @@ namespace Protocol
                     if (isError(s)) return s;
                     return s+o;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if the value is correct */
                 bool check() const { return key.check() && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
 #endif
@@ -545,8 +559,10 @@ namespace Protocol
                     data = &buffer[2];
                     return (uint32)length + 2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
@@ -628,10 +644,13 @@ namespace Protocol
                 }
                 
                 /** Check if the value is correct */
-                bool check() const
+                inline bool checkImpl() const
                 {
                     return size > 0 && size < 5 && (value[size-1] & 0x80) == 0;
                 }
+#if MQTTAvoidValidation != 1
+                bool check() const { return checkImpl(); }
+#endif
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return size; }
                 
@@ -741,10 +760,11 @@ namespace Protocol
                 virtual uint32 typeSize() const = 0;
                 /** From network and To network are supposed to be called in succession 
                     leading to the same state so they are both const even if individually, they modify the value */ 
-                virtual void fromNetwork() const = 0;
-                virtual void toNetwork() const = 0;
+                virtual void swapNetwork() const = 0;
                 virtual void * raw() = 0;
+#if MQTTAvoidValidation != 1                
                 bool check() const { return true; }
+#endif
                 ~GenericTypeBase() {}
             };
             /** A globally used GenericType that's there to minimize the number of generic code 
@@ -754,8 +774,7 @@ namespace Protocol
             {
                 T value;
                 uint32 typeSize() const { return sizeof(T); }
-                void fromNetwork() const { const_cast<T&>(value) = BigEndian(value); }
-                void toNetwork() const { const_cast<T&>(value) = BigEndian(value); }
+                void swapNetwork() const { const_cast<T&>(value) = BigEndian(value); }
                 void * raw() { return &value; }
                 operator T & () { return value; }
                 GenericType & operator = (const T v) { value = v; return *this; }
@@ -865,7 +884,9 @@ namespace Protocol
                 uint8 typeAndFlags;
                 virtual ControlPacketType   getType() const { return (ControlPacketType)(typeAndFlags >> 4); }
                 virtual uint8               getFlags() const { return typeAndFlags & 0xF; }
+#if MQTTAvoidValidation != 1
                 virtual bool check() const { return true; }
+#endif
 #if MQTTDumpCommunication == 1
                 virtual void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type %s, no flags)\n", (int)indent, "", getControlPacketName(getType())); }
 #endif    
@@ -1153,7 +1174,7 @@ namespace Protocol
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long, and at worst very large (use getSize to figure out the required size).
                     @return The number of bytes used in the buffer */
-                uint32 copyInto(uint8 * buffer) const { buffer[0] = type; value.toNetwork(); memcpy(buffer+1, value.raw(), value.typeSize()); value.fromNetwork(); return value.typeSize() + 1; }
+                uint32 copyInto(uint8 * buffer) const { buffer[0] = type; value.swapNetwork(); memcpy(buffer+1, value.raw(), value.typeSize()); value.swapNetwork(); return value.typeSize() + 1; }
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or BadData upon error */
@@ -1162,12 +1183,13 @@ namespace Protocol
                     if ((buffer[0] & 0x80) || buffer[0] != type) return BadData;
                     if (bufLength < sizeof(value)+1) return NotEnoughData;
                     memcpy(value.raw(), buffer+1, value.typeSize());
-                    value.fromNetwork();
+                    value.swapNetwork();
                     return value.typeSize() + 1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80; }
-
+#endif
                 /** The default constructor */
                 PropertyBaseImpl(const PropertyType type, GenericTypeBase & v) : PropertyBase(type), value(v) {}
             };
@@ -1229,8 +1251,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1268,8 +1292,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1308,8 +1334,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1348,8 +1376,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1387,8 +1417,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1425,8 +1457,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1464,8 +1498,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1606,8 +1642,10 @@ namespace Protocol
                 void append(PropertyBase * prop) { PropertyListNode * u = this; while(u->next) u = u->next; u->next = new PropertyListNode(prop); }
                 /** Count the number of element in this list */
                 uint32 count() const { const PropertyListNode * u = this; uint32 c = 1; while(u->next) { u = u->next; c++; } return c; }
+#if MQTTAvoidValidation != 1
                 /** Check all properties in this list are valid */
                 bool check() const { const PropertyListNode * u = this; while (u->next) { if (!u->property->check()) return false; u = u->next; } return true; }
+#endif
                 /** Clone a single node here (not the complete list) */
                 PropertyListNode * clone() const { return new PropertyListNode(property->clone()); }
                 
@@ -1665,7 +1703,9 @@ namespace Protocol
             /** Additional method required for properties */
             struct SerializableProperties : public Serializable
             {
+#if MQTTAvoidValidation != 1
                 virtual bool checkPropertiesFor(const ControlPacketType type) const = 0;
+#endif
             };
 
             /** The property structure (section 2.2.2) */
@@ -1725,8 +1765,10 @@ namespace Protocol
                     }
                     return o;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return length.check() && head ? head->check() : true; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1739,6 +1781,7 @@ namespace Protocol
                     }
                 }
 #endif
+#if MQTTAvoidValidation != 1
                 /** Check if the properties are compatible for the given packet type */
                 bool checkPropertiesFor(const ControlPacketType type) const
                 {
@@ -1747,14 +1790,14 @@ namespace Protocol
                     while (u) { if (!isAllowedProperty((PropertyType)u->property->type, type)) return false; u = u->next; }
                     return true;
                 }
-
+#endif
                 /** Append a property to this list
                     @param property     A pointer to a new allocated property to append to this list that's owned
                     @return true upon successful append, false upon error (the pointer is not owned in that case) */
                 bool append(PropertyBase * property)
                 {
                     VBInt l((uint32)length + property->getSize());
-                    if (!l.check()) return false;
+                    if (!l.checkImpl()) return false;
                     length = l;
                     if (head) head->append(property);
                     else head = new PropertyListNode(property);
@@ -1876,8 +1919,10 @@ namespace Protocol
                     buffer = _buffer + o;
                     return o + (uint32)length;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return length.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1891,10 +1936,10 @@ namespace Protocol
                     }
                 }
 #endif                
+#if MQTTAvoidValidation != 1
                 /** Check if the properties are compatible for the given packet type */
                 bool checkPropertiesFor(const ControlPacketType type) const
                 {
-#if MQTTAvoidValidation != 1
                     if (!check()) return false;
                     uint32 o = 0;
                     PropertyType t = BadProperty; 
@@ -1902,9 +1947,9 @@ namespace Protocol
                     {
                         if (!isAllowedProperty(t, type)) return false;
                     }
-#endif
                     return true;
                 }                
+#endif
                 
                 /** Build an empty property list */
                 PropertiesView() : buffer(0) {}
@@ -1986,6 +2031,7 @@ namespace Protocol
                     if (next) o += next->copyInto(buffer+1);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2007,8 +2053,11 @@ namespace Protocol
                     }
                     return o;
                 }
+#endif
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return reserved == 0 && retainAsPublished != 3 && QoS != 3 && topic.check() && (next ? next->check() : true); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2062,6 +2111,7 @@ namespace Protocol
                     if (next) o += next->copyInto(buffer);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2081,8 +2131,11 @@ namespace Protocol
                     }
                     return o;
                 }
+#endif
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return topic.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2220,9 +2273,9 @@ namespace Protocol
                 };
                 /** The keep alive time in seconds */
                 mutable uint16 keepAlive;
-
+#if MQTTAvoidValidation != 1
                 bool check() const { return reserved == 0 && willQoS < 3 && memcmp(protocolName, expectedProtocolName(), sizeof(protocolName)) == 0; }
-
+#endif
                 /** Get the expected protocol name */
                 static const uint8 * expectedProtocolName() { static uint8 protocolName[6] = { 0, 4, 'M', 'Q', 'T', 'T' }; return protocolName; }
                 /** The default constructor */
@@ -2238,20 +2291,22 @@ namespace Protocol
                 uint32 getSize() const { return value.typeSize(); }
                 uint32 copyInto(uint8 * buffer) const
                 {
-                    value.toNetwork();
+                    value.swapNetwork();
                     memcpy(buffer, value.raw(), getSize());
-                    value.fromNetwork();
+                    value.swapNetwork();
                     return value.typeSize();
                 }
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
                     if (bufLength < value.typeSize()) return NotEnoughData;
                     memcpy(value.raw(), buffer, value.typeSize());
-                    value.fromNetwork();
+                    value.swapNetwork();
                     return value.typeSize();
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this header is correct */
                 bool check() const { return value.check(); }
+#endif
                 /** No action from the packet header to the behaviour here */
                 virtual void setFlags(const uint8 &) {}
                 /** Some packets are using shortcut length, so we need to know about this */
@@ -2265,12 +2320,13 @@ namespace Protocol
             {
                 ConnectHeaderImpl & value;
                 uint32 typeSize() const { return sizeof(value); }
-                void fromNetwork() const { const_cast<ConnectHeaderImpl&>(value).keepAlive = BigEndian(value.keepAlive); }
-                void toNetwork() const { fromNetwork(); }
+                void swapNetwork() const { const_cast<ConnectHeaderImpl&>(value).keepAlive = BigEndian(value.keepAlive); }
                 void * raw() { return &value; }
                 operator ConnectHeaderImpl& () { return value; } 
                 GenericType<ConnectHeaderImpl> & operator = (const ConnectHeaderImpl & o) { value = o; return *this; }
+#if MQTTAvoidValidation != 1                
                 bool check() const { return value.check(); }
+#endif
                 GenericType<ConnectHeaderImpl>(ConnectHeaderImpl & v) : value(v) {}
             };
 
@@ -2297,7 +2353,9 @@ namespace Protocol
                 /** The connect reason */
                 uint8 reasonCode;
 
+#if MQTTAvoidValidation != 1
                 bool check() const { return (acknowledgeFlag & 0xFE) == 0; }
+#endif
 
                 ConnACKHeaderImpl() : acknowledgeFlag(0), reasonCode(0) {}
             };
@@ -2307,8 +2365,7 @@ namespace Protocol
             {
                 ConnACKHeaderImpl & value;
                 uint32 typeSize() const { return sizeof(value); }
-                void fromNetwork() const {  }
-                void toNetwork() const {  }
+                void swapNetwork() const {  }
                 void * raw() { return &value; }
                 GenericType<ConnACKHeaderImpl> & operator = (const ConnACKHeaderImpl & o) { value = o; return *this; }
                 operator ConnACKHeaderImpl& () { return value; } 
@@ -2392,8 +2449,7 @@ namespace Protocol
             {
                 IDAndReason & value;
                 uint32 typeSize() const { return sizeof(value); }
-                void fromNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }
-                void toNetwork() const { fromNetwork(); }
+                void swapNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }
                 void * raw() { return &value; }
                 GenericType<IDAndReason> & operator = (const IDAndReason & o) { value = o; return *this; }
                 operator IDAndReason& () { return value; } 
@@ -2478,9 +2534,10 @@ namespace Protocol
             {
                 TopicAndID & value;
                 uint32 typeSize() const { return value.topicName.getSize(); }
-                void fromNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }
-                void toNetwork() const { fromNetwork(); }
+                void swapNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }         
+#if MQTTAvoidValidation != 1
                 bool check() const { return value.topicName.check(); }
+#endif
                 void * raw() { return &value; }
                 GenericType<TopicAndID> & operator = (const TopicAndID & o) { value = o; return *this; }
                 operator TopicAndID& () { return value; } 
@@ -2571,6 +2628,7 @@ namespace Protocol
                     o += willPayload.copyInto(buffer+o);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer       A pointer to an allocated buffer
                     @param bufLength    The length of the buffer in bytes
@@ -2588,7 +2646,9 @@ namespace Protocol
                     o += s;
                     return o;
                 }
+#endif
                 
+#if MQTTAvoidValidation != 1
                 /** Check the will properties validity */
                 bool check() const
                 {
@@ -2601,6 +2661,7 @@ namespace Protocol
                     }
                     return willTopic.check() && willPayload.check();
                 }
+#endif
 
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sWill message\n", (int)indent, ""); willProperties.dump(out, indent + 2); willTopic.dump(out, indent + 2); willPayload.dump(out, indent + 2); }
@@ -2636,7 +2697,8 @@ namespace Protocol
                 
                 /** Set the fixed header */
                 void setFlags(const FixedFieldGeneric & field) { fixedHeader = (FixedField<CONNECT>*)&field; }
-                
+
+#if MQTTAvoidValidation != 1                
                 /** Check if the client ID is valid */
                 bool checkClientID() const
                 {
@@ -2652,6 +2714,7 @@ namespace Protocol
                     if (fixedHeader && !fixedHeader->willFlag) return true;
                     return willMessage->check();
                 }
+#endif
                 
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return clientID.getSize() + getFilteredSize(); }
@@ -2667,6 +2730,7 @@ namespace Protocol
                     if (fixedHeader->passwordFlag)   o += password.copyInto(buffer+o);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2695,6 +2759,8 @@ namespace Protocol
                     }
                     return o;
                 }
+#endif
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const
                 {
@@ -2705,6 +2771,7 @@ namespace Protocol
                     if (fixedHeader->passwordFlag && !password.check()) return false;
                     return true;
                 }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2766,8 +2833,7 @@ namespace Protocol
                     memcpy(data, buffer, size);
                     return size;
                 }
-                /** Check if this payload is valid */
-                bool check() const { return true; }
+
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
 #endif                
@@ -2807,8 +2873,7 @@ namespace Protocol
                     data = buffer;
                     return size;
                 }
-                /** Check if this payload is valid */
-                bool check() const { return true; }
+
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
 #endif                
@@ -2833,6 +2898,7 @@ namespace Protocol
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */
                 uint32 copyInto(uint8 * buffer) const { return topics ? topics->copyInto(buffer) : 0; }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2843,8 +2909,12 @@ namespace Protocol
                     topics = new SubscribeTopic();
                     return topics->readFrom(buffer, expSize);
                 }
+#endif
+
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return topics ? topics->check() : true; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2876,6 +2946,7 @@ namespace Protocol
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */
                 uint32 copyInto(uint8 * buffer) const { return topics ? topics->copyInto(buffer) : 0; }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2886,8 +2957,11 @@ namespace Protocol
                     topics = new UnsubscribeTopic();
                     return topics->readFrom(buffer, expSize);
                 }
+#endif
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return topics ? topics->check() : true; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -3046,12 +3120,13 @@ namespace Protocol
                     if (isError(s)) return s;
                     return o + s;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const
                 {
                     return header.check() && remLength.check() && fixedVariableHeader.check() && props.checkPropertiesFor(header.getType()) && payload.check();
                 }
-                
+#endif                
                 ControlPacketSerializableImpl(FixedHeaderBase & _header, FixedFieldGeneric & _fixedVariableHeader, SerializableProperties & _props, SerializablePayload & _payload) 
                     : header(_header), fixedVariableHeader(_fixedVariableHeader), props(_props), payload(_payload) {}
             };
@@ -3123,8 +3198,10 @@ namespace Protocol
                     if (buffer[1]) return BadData;
                     return 2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return header.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
