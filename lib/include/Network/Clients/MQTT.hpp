@@ -23,7 +23,7 @@
     This removes QoS processing for value above this threshold (reduce binary code size but might remove 
     fundamental feature for your application). Changing this might break your client code
     Default: 2 (all mode supported, 1: up to "at least one", 0: only "at most one") */
-#define MQTTSupportQoSLevel 0
+#define MQTTSupportQoSLevel 2
 
 /** Simple socket code.
     If set to true, this disables the optimized network code from ClassPath and fallback to the minimal subset 
@@ -148,6 +148,8 @@ namespace Network
         private:
             /** Prepare, send and receive a packet */
             ErrorType::Type prepareSAR(Protocol::MQTT::V5::ControlPacketSerializable & packet, bool withAnswer = true);
+            /** Enter a publish cycle. This is called upon publishing or receiving a published packet */
+            ErrorType enterPublishCycle(Protocol::MQTT::V5::ControlPacketSerializableImpl & publishPacket, bool sending = false);
 
             // Interface
         public:
@@ -172,7 +174,7 @@ namespace Network
                 @return An ErrorType */
             ErrorType connectTo(const char * serverHost, const uint16 port, bool useTLS = false, const uint16 keepAliveTimeInSec = 300,
                 const bool cleanStart = true, const char * userName = nullptr, const DynamicBinDataView * password = nullptr,
-                WillMessage * willMessage = nullptr, const QoSDelivery willQoS = Protocol::MQTT::V5::AtMostOne, const bool willRetain = false, 
+                WillMessage * willMessage = nullptr, const QoSDelivery willQoS = QoSDelivery::AtMostOne, const bool willRetain = false, 
                 Properties * properties = nullptr);
 
 #if MQTTUseAuth == 1
@@ -202,8 +204,8 @@ namespace Network
                 @param properties           If provided those properties will be sent along the subscribe packet. Allowed properties for subscribe packet are: 
                                             Subscription Identifier, User property
                 @return An ErrorType */
-            ErrorType subscribe(const char * topic, const RetainHandling retainHandling = Protocol::MQTT::V5::GetRetainedMessageForNewSubscriptionOnly, const bool withAutoFeedBack = false, 
-                                const QoSDelivery maxAcceptedQoS = Protocol::MQTT::V5::ExactlyOne, const bool retainAsPublished = true, Properties * properties = nullptr);
+            ErrorType subscribe(const char * topic, const RetainHandling retainHandling = RetainHandling::GetRetainedMessageForNewSubscriptionOnly, const bool withAutoFeedBack = false, 
+                                const QoSDelivery maxAcceptedQoS = QoSDelivery::ExactlyOne, const bool retainAsPublished = true, Properties * properties = nullptr);
 
             /** Subscribe to some topics.
 
@@ -228,7 +230,7 @@ namespace Network
                                             Payload Format Indicator, Message Expiry Interval, Topic Alias, 
                                             Response topic, Correlation Data, Subscription Identifier, User property, Content Type
                 @return An ErrorType */
-            ErrorType publish(const char * topic, const uint8 * payload, const uint32 payloadLength, const bool retain = false, const QoSDelivery QoS = Protocol::MQTT::V5::AtMostOne, 
+            ErrorType publish(const char * topic, const uint8 * payload, const uint32 payloadLength, const bool retain = false, const QoSDelivery QoS = QoSDelivery::AtMostOne, 
                               const uint16 packetIdentifier = 0, Properties * properties = nullptr);
 
             /** The client event loop you must call regularly.

@@ -25,6 +25,9 @@
     #define HAS_STD_ATOMIC 1
     #define HasCPlusPlus11 1
 #endif
+#if __cplusplus >= 201500L
+    #define HasCPlusPlus17 1
+#endif
 
 // Safety checks for this configuration
 #include <atomic> 
@@ -209,7 +212,16 @@
     #define enterAtomicSection() 1
     /** Unless you run on embedded OS, you'll not need those functions */
     #define leaveAtomicSection(X) do {} while(0)
+
 #elif defined(ESP_PLATFORM)
+    #include <stdlib.h>
+    #include <string.h>
+    // We need BSD socket here and TCP_NODELAY
+    #include <sys/socket.h>
+    // We need gethostbyname or getaddrinfo
+    #include <netdb.h>
+    #include <stdarg.h>
+
     	#ifndef DontWantUINT8
 		typedef unsigned char uint8;
 	#endif
@@ -221,8 +233,8 @@
 	#endif
 
 	#ifndef DontWantUINT64
-        typedef unsigned long long uint64;
-    #endif
+		typedef unsigned long long uint64;
+        #endif
 
 	#ifndef DontWantINT8
 		typedef signed char int8;
@@ -235,11 +247,11 @@
 	#endif
 
 	#ifndef DontWantINT64
-        typedef long long int64;
-    #endif
+		typedef long long int64;
+	#endif
         #ifndef DontWantNativeInt
-        typedef intptr_t nativeint;
-    #endif
+		typedef intptr_t nativeint;
+	#endif
 
     #define PF_LLD  "%lld"
     #define PF_LLU  "%llu"
@@ -313,6 +325,42 @@
     extern "C" int enterAtomicSection();
     /** Unless you run on embedded OS, you'll not need those functions */
     extern "C" void leaveAtomicSection(int);
+#endif
+
+#ifndef MQTTString
+  #include <string>
+  #define MQTTString	std::string
+#endif
+#ifndef MQTTROString
+  #if HasCPlusPlus17 == 1
+    #include <string_view>
+    #define MQTTROString    std::string_view
+  #else
+    class MQTTROString
+    {
+        const char * d;
+        const size_t l;
+    public:
+        const char * data() const { return d; }
+        size_t length() const { return l; }
+        MQTTROString(const char * d = 0, const size_t l = 0) : d(d), l(l) {}
+        MQTTROString(const MQTTROString & o) : d(o.d), l(o.l) {}
+    };
+  #endif
+#endif
+#ifndef MQTTStringGetData
+  #define MQTTStringGetData(X) X.data()
+  #define MQTTStringGetLength(X) X.length()
+#endif
+
+#ifdef _WIN32
+    typedef HANDLE              HTHREAD;
+    typedef HANDLE              HMUTEX;
+    typedef HANDLE              OEVENT;
+#else
+    typedef pthread_t           HTHREAD;
+    typedef pthread_mutex_t     HMUTEX;
+    typedef pthread_mutex_t     OEVENT;
 #endif
 
 #if MinimalFootPrint == 0
@@ -399,18 +447,27 @@ inline size_t Monsanto(const size_t x, const size_t wordSize = 4) { return (x + 
     #define Aligned(X) __declspec(align (X))
     #define ForcedInline(X) __forceinline X
     #define Unused(X) UNREFERENCED_PARAMETER(X)
+    #define Hidden
 #elif defined(__GNUC__)
     #define Deprecated(X) X __attribute__ ((deprecated))
     #define Aligned(X) __attribute__ ((aligned (X)))
     #define ForcedInline(X) X __attribute__ ((always_inline))
     #define Unused(X) X __attribute__ ((unused))
+    #define Hidden    __attribute__ ((visibility ("hidden")))
 #else
     #define Deprecated(X) X
     #define Aligned(X)
     #define ForcedInline(X) X
     #define Unused(X) X
+    #define Hidden 
 #endif
 #define ForceUndefinedSymbol(x) void* __ ## x ## _fp =(void*)&x;
+
+#if HasCPlusPlus11 == 1
+    #define Final final
+#else
+    #define Final
+#endif
 
 /** Free a pointer and zero it */
 template <typename T> inline void free0(T*& t) { free(t); t = 0; }
@@ -513,15 +570,6 @@ public:
 };
 
 
-#ifdef _WIN32
-    typedef HANDLE              HTHREAD;
-    typedef HANDLE              HMUTEX;
-    typedef HANDLE              OEVENT;
-#else
-    typedef pthread_t           HTHREAD;
-    typedef pthread_mutex_t     HMUTEX;
-    typedef pthread_mutex_t     OEVENT;
-#endif
 
 #define WantFloatParsing 1
 

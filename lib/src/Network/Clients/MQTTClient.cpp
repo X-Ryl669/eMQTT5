@@ -104,6 +104,9 @@ namespace Network { namespace Client {
         {}
         ~Impl() { delete socket; socket = 0; ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
 
+        
+        inline void setTimeout(uint32 timeout) { timeoutMs = timeout; }
+
         bool shouldPing()
         {
             return (((uint32)time(NULL) - lastCommunication) >= keepAlive);
@@ -123,32 +126,15 @@ namespace Network { namespace Client {
             return socket->sendReliably(buffer, (int)length, timeoutMs);
         }
 
-        int receive(char * buffer, const uint32 minLength, const uint32 maxLength)
+        int receive(char * buffer, const uint32 minLength, const uint32 maxLength, const Time::TimeOut & timeout)
         {
             if (!socket) return -1;
-            int ret = socket->receiveReliably(buffer, minLength, timeoutMs);
+            int ret = socket->receiveReliably(buffer, minLength, timeout);
             if (ret <= 0) return ret;
             // The socket is non blocking, thus the following will only return what's available at the calling time
             int nret = socket->receive(&buffer[ret], maxLength - ret, 0);
             return nret <= 0 ? nret : nret + ret;
         }
-
-        int receivePingResp()
-        {
-            uint8 buffer[2] = {};
-            int ret = socket->receiveReliably((char*)buffer, sizeof(buffer), timeoutMs);
-            if (ret <= 0) return ret;
-            if (ret != sizeof(buffer) || buffer[0] != 0xD0 || buffer[1] != 0)
-                return -1; // Bad protocol
-#if MQTTDumpCommunication == 1
-            Logger::log(Logger::Dump, "< Received packet: PINGRESP");
-#endif
-
-            // Ok, got some communication
-            lastCommunication = (uint32)time(NULL);
-            return sizeof(buffer);
-        }
-
 
         bool hasValidLength() const
         {
@@ -185,14 +171,25 @@ namespace Network { namespace Client {
             case Ready:
             case GotType:
             {   // Here, make sure we only fetch the length first
-                // The minimal size is 2 bytes for PINGRESP. Because of this, we can't really outsmart the system everytime
-                int querySize = (packetExpectedVBSize + 1) - available;
-                ret = socket->receiveReliably((char*)&recvBuffer[available], querySize, timeout);
+                // The minimal size is 2 bytes for PINGRESP, DISCONNECT and AUTH. 
+                // Because of this, we can't really outsmart the system everytime
+                ret = socket->receiveReliably((char*)&recvBuffer[available], 2 - available, timeout);
                 if (ret > 0) available += ret;
                 // Deal with timeout first
                 if (timeout == 0) return -2;
                 // Deal with socket errors here
-                if (ret < 0) return ret;
+                if (ret < 0 || available < 2) return -1;
+                // Depending on the packet type, let's wait for more data
+                if (recvBuffer[0] < 0xD0 || recvBuffer[1]) // Below ping response or packet size larger than 2 bytes
+                {
+                    int querySize = (packetExpectedVBSize + 1) - available;
+                    ret = socket->receiveReliably((char*)&recvBuffer[available], querySize, timeout);
+                    if (ret > 0) available += ret;
+                    // Deal with timeout first
+                    if (timeout == 0) return -2;
+                    // Deal with socket errors here
+                    if (ret < 0) return ret;
+                }
 
                 recvState = GotLength;
                 break;
@@ -216,7 +213,7 @@ namespace Network { namespace Client {
             }
             uint32 remainingLength = len;
             uint32 totalPacketSize = remainingLength + 1 + len.getSize();
-            ret = socket->receiveReliably((char*)&recvBuffer[available], (totalPacketSize - available), timeout);
+            ret = totalPacketSize == available ? 0 : socket->receiveReliably((char*)&recvBuffer[available], (totalPacketSize - available), timeout);
             if (ret > 0) available += ret;
             if (timeout == 0) return -2;
             if (ret < 0) return ret;
@@ -392,7 +389,7 @@ namespace Network { namespace Client {
         /** The message received callback to use */
         MessageReceived *   cb;
         /** The default timeout in milliseconds */
-        uint32              timeoutMs;
+        struct timeval      timeoutMs;
 
         /** The last communication time in second */
         uint32              lastCommunication;
@@ -428,10 +425,16 @@ namespace Network { namespace Client {
         }
 
         Impl(const char * clientID, MessageReceived * callback)
-             : socket(-1), clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+             : socket(-1), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
         ~Impl() { ::closesocket(socket); socket = -1; ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
+
+        inline void setTimeout(uint32 timeout)
+        {
+            timeoutMs.tv_sec = (uint32)timeout / 1024; // Avoid division here (compiler should shift the value here), the value is approximative anyway
+            timeoutMs.tv_usec = ((uint32)timeout & 1023) * 977;  // Avoid modulo here and make sure it doesn't overflow (since 1023 * 977 < 1000000)
+        }
 
         bool shouldPing()
         {
@@ -439,45 +442,23 @@ namespace Network { namespace Client {
         }
 
         // Useful socket helpers functions here
-        int select(bool reading, bool writing, const int timeoutMs)
+        int select(bool reading, bool writing)
         {
-            struct timeval tv;
-            tv.tv_sec = (uint32)timeoutMs / 1024; // Avoid division here (compiler should shift the value here), the value is approximative anyway
-            tv.tv_usec = ((uint32)timeoutMs & 1023) * 977;  // Avoid modulo here and make sure it doesn't overflow (since 1023 * 977 < 1000000)
+#if (_LINUX == 1)
+            // Linux modifies the timeout when calling select
+            struct timeval v = timeoutMs;
+#else
+            // Other system don't
+            struct timeval & v = timeoutMs;
+#endif
             fd_set set;
             FD_ZERO(&set);
             FD_SET(socket, &set);
             // Then select
-            return ::select(socket + 1, reading ? &set : NULL, writing ? &set : NULL, NULL, timeoutMs < 0 ? NULL : &tv);
+            return ::select(socket + 1, reading ? &set : NULL, writing ? &set : NULL, NULL, &v);
         }
 
-        int sendReliably(const char * buffer, const int bufferSize, const int timeoutMs)
-        {
-            int len = 0;
-            while (len < bufferSize && select(false, true, timeoutMs) == 1)
-            {
-                int result = ::send(socket, &buffer[len], (bufferSize - len), MSG_NOSIGNAL);
-                if (result < 0)                    return -1;
-               
-                len += result;
-            }
-            return len;        
-        }
 
-        int receiveReliably(char * buffer, const int bufferSize, const int timeoutMs)
-        {
-            int len = 0;
-            while (len < bufferSize && select(true, false, timeoutMs) == 1)
-            {
-                int result = ::recv(socket, &buffer[len], (bufferSize - len), 0);
-                if (result < 0)                 return -1;
-                if (result == 0)                return len; // The close socket state might be visible only on the next call, we don't care here
-                len += result;
-            }
-            return len;
-        }
-
-        
 
         int send(const char * buffer, const uint32 length)
         {
@@ -486,35 +467,21 @@ namespace Network { namespace Client {
             dumpBufferAsPacket("> Sending packet", (const uint8*)buffer, length);
 #endif
 
-            return sendReliably(buffer, (int)length, timeoutMs);
+            return ::send(socket, buffer, (int)length, 0);
         }
 
         // Ensure we receive the requested minimal length, and if possible, up to the given maximal length
-        int receive(char * buffer, const uint32 minLength, const uint32 maxLength)
+        int recv(char * buffer, const uint32 minLength, const uint32 maxLength = 0)
         {
             if (!socket) return -1;
-            int ret = receiveReliably(buffer, minLength, timeoutMs);
+            int ret = ::recv(socket, buffer, minLength, MSG_WAITALL);
             if (ret <= 0) return ret;
-            // The socket is non blocking, thus the following will only return what's available at the calling time
+            if (maxLength <= minLength) return ret;
+
             int nret = ::recv(socket, &buffer[ret], maxLength - ret, 0);
             return nret <= 0 ? nret : nret + ret;
         }
 
-        int receivePingResp()
-        {
-            uint8 buffer[2] = {};
-            int ret = receiveReliably((char*)buffer, sizeof(buffer), timeoutMs);
-            if (ret <= 0) return ret;
-            if (ret != sizeof(buffer) || buffer[0] != 0xD0 || buffer[1] != 0)
-                return -1; // Bad protocol
-#if MQTTDumpCommunication == 1
-            printf("< Received packet: PINGRESP");
-#endif
-
-            // Ok, got some communication
-            lastCommunication = (uint32)time(NULL);
-            return sizeof(buffer);
-        }
 
 
         bool hasValidLength() const
@@ -551,14 +518,23 @@ namespace Network { namespace Client {
             case Ready:
             case GotType:
             {   // Here, make sure we only fetch the length first
-                // The minimal size is 2 bytes for PINGRESP. Because of this, we can't really outsmart the system everytime
-                int querySize = (packetExpectedVBSize + 1) - available;
-                ret = receiveReliably((char*)&recvBuffer[available], querySize, timeoutMs);
+                // The minimal size is 2 bytes for PINGRESP and shortcut DISCONNECT / AUTH. 
+                // Because of this, we can't really outsmart the system everytime
+                ret = recv((char*)&recvBuffer[available], 2 - available);
                 if (ret > 0) available += ret;
                 // Deal with timeout first
-                if (ret == 0) return -2;
-                // Deal with socket errors here
-                if (ret < 0) return ret;
+                if (ret < 0 || available < 2)
+                    return (errno == EWOULDBLOCK) ? -2 : -1;
+
+                // Depending on the packet type, let's wait for more data
+                if (recvBuffer[0] < 0xD0 || recvBuffer[1]) // Below ping response or packet size larger than 2 bytes
+                {
+                    int querySize = (packetExpectedVBSize + 1) - available;
+                    ret = recv((char*)&recvBuffer[available], querySize);
+                    if (ret > 0) available += ret;
+                    // Deal with timeout first
+                    if (ret < 0) return (errno == EWOULDBLOCK) ? -2 : -1;
+                }
 
                 recvState = GotLength;
                 break;
@@ -582,17 +558,16 @@ namespace Network { namespace Client {
             }
             uint32 remainingLength = len;
             uint32 totalPacketSize = remainingLength + 1 + len.getSize();
-            ret = receiveReliably((char*)&recvBuffer[available], (totalPacketSize - available), timeoutMs);
+            ret = totalPacketSize == available ? 0 : recv((char*)&recvBuffer[available], totalPacketSize - available);
             if (ret > 0) available += ret;
-            if (ret == 0) return -2;
-            if (ret < 0) return ret;
+            if (ret < 0) return (errno == EWOULDBLOCK) ? -2 : -1;
 
             // Ok, let's check if we have received the complete packet
             if (available == totalPacketSize)
             {
                 recvState = GotCompletePacket;
 #if MQTTDumpCommunication == 1
-            dumpBufferAsPacket("< Received packet", recvBuffer, available);
+                dumpBufferAsPacket("< Received packet", recvBuffer, available);
 #endif
                 lastCommunication = (uint32)time(NULL);
                 return (int)available;
@@ -663,6 +638,13 @@ namespace Network { namespace Client {
             } else socket = ::socket(AF_INET, SOCK_STREAM, 0);
             
             if (socket == -1) return -2;
+
+            // Please notice that under linux, it's not required to set the socket
+            // as non blocking if you define SO_SNDTIMEO, for connect timeout.
+            // so the code below could be optimized away. Yet, lwIP does show the 
+            // same behavior so when a timeout for connection is actually required
+            // you must issue a select call here.
+
             // Set non blocking here
             int socketFlags = ::fcntl(socket, F_GETFL, 0);
             if (socketFlags == -1) return -3;
@@ -694,7 +676,17 @@ namespace Network { namespace Client {
             if (ret == 0) return 0;
 
             // Here, we need to wait until connection happens or times out
-            if (select(false, true, timeoutMs)) return 0;
+            if (select(false, true)) 
+            {
+                // Restore blocking behavior here
+                if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
+                // And set timeouts for both recv and send
+                if (::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
+                if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -5;
+                // Ok, done!
+                return 0;
+            }
+
             return -7;
         }
     };
@@ -1061,6 +1053,73 @@ namespace Network { namespace Client {
         return MQTTv5::ErrorType::NetworkError;
     }
 
+    // Enter publish cycle
+    MQTTv5::ErrorType MQTTv5::enterPublishCycle(Protocol::MQTT::V5::ControlPacketSerializableImpl & publishPacket, bool sending)
+    {
+        // The type to answer with depends on the QoS value
+        uint8 QoS = ((Protocol::MQTT::V5::FixedHeaderType<Protocol::MQTT::V5::PUBLISH, 0>&)publishPacket.header).getQoS();
+        uint16 packetID = ((Protocol::MQTT::V5::FixedField<Protocol::MQTT::V5::PUBLISH> &)publishPacket.fixedVariableHeader).packetID;
+
+        static Protocol::MQTT::V5::ControlPacketType nexts[3] = { Protocol::MQTT::V5::RESERVED, Protocol::MQTT::V5::PUBACK, Protocol::MQTT::V5::PUBREC };
+        Protocol::MQTT::V5::ControlPacketType next = nexts[QoS]; 
+
+        /* The state machine is like this:
+                    SEND                         RECV
+                   [ PUB ] => Send 
+                - - - - - - - - - - -
+                                Receive [ PKT ]             
+                PKT == ACK ?                     PKT == ACK ?
+                / Yes      \ No (REC)            / Yes      \ No (REC)
+               Assert ID  Assert ID           Send ACK      Send REC
+               |            |                    |      - - - - - - - - -      
+               Stop       [ REL ] => Send       Stop     Receive [REL]
+                        - - - - - - - - - -                   |
+                          Receive [COMP]                 Send [COMP]
+                            |                                 | 
+                          Assert ID                         Stop
+                            | 
+                           Stop    
+        */
+
+        if (sending)
+        {
+            if (ErrorType ret = prepareSAR(publishPacket, next != Protocol::MQTT::V5::RESERVED))
+                return ret;
+            // Receive packet so we are at the same position in the state machine above
+        }
+
+        while (next != Protocol::MQTT::V5::RESERVED)
+        {
+            if (sending)
+            {   // Skip this if received a Publish packet since it's not the same format
+                Protocol::MQTT::V5::PublishReplyPacket reply(next);
+
+                Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
+                if (type != next) return Protocol::MQTT::V5::ProtocolError;
+
+                int ret = impl->extractControlPacket(next, reply);
+                if (ret <= 0) return ErrorType::NetworkError;
+
+                // Ensure it's matching the packet ID
+                if (reply.fixedVariableHeader.packetID != packetID)
+                    return Protocol::MQTT::V5::ProtocolError;
+                
+                // Compute the expected next packet
+                next = Protocol::MQTT::V5::getNextPacketType(next);
+                if (next == Protocol::MQTT::V5::RESERVED) 
+                    return ErrorType::Success;
+            } else sending = true;
+
+            // Check if we need to send something 
+            Protocol::MQTT::V5::PublishReplyPacket answer(next);
+            answer.fixedVariableHeader.packetID = packetID;
+            next = Protocol::MQTT::V5::getNextPacketType(next);
+            if (ErrorType err = prepareSAR(answer, next != Protocol::MQTT::V5::RESERVED))
+                return err;
+        }
+        return ErrorType::Success;
+    }
+
     // Publish to a topic.
     MQTTv5::ErrorType MQTTv5::publish(const char * topic, const uint8 * payload, const uint32 payloadLength, const bool retain, const QoSDelivery QoS, const uint16 packetIdentifier, Properties * properties)
     {
@@ -1077,7 +1136,7 @@ namespace Network { namespace Client {
         if (impl->getLastPacketType() != Protocol::MQTT::V5::RESERVED)
             return ErrorType::TranscientPacket;
 
-        Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::PUBLISH> packet;
+        Protocol::MQTT::V5::PublishPacket packet;
         if (properties)
         {   // Capture properties (to avoid copying them)
             packet.props.swap(*properties);
@@ -1098,6 +1157,8 @@ namespace Network { namespace Client {
         packet.payload.setExpectedPacketSize(payloadLength);
         packet.payload.readFrom(payload, payloadLength);
 
+        return enterPublishCycle(packet, true);
+#if 0        
         if (ErrorType ret = prepareSAR(packet, withAnswer))
             return ret;
 
@@ -1183,6 +1244,7 @@ namespace Network { namespace Client {
 
         
         return MQTTv5::ErrorType::UnknownError;
+#endif
     }
 
     // The client event loop you must call regularly.
@@ -1202,10 +1264,6 @@ namespace Network { namespace Client {
                 Protocol::MQTT::V5::PingReqPacket packet;
                 if (ErrorType ret = prepareSAR(packet, false))
                     return ret;
-
-                // Server should answer to PINGREQ by PINGRESP [MQTT-3.12.4-1].
-                if (impl->receivePingResp() != 2)
-                    return ErrorType::NetworkError;
             }
             // Check the server for any packet...
             int ret = impl->receiveControlPacket();
@@ -1221,10 +1279,22 @@ namespace Network { namespace Client {
             type = impl->getLastPacketType();
         }
 
+
+
         switch (type)
         {
         case Protocol::MQTT::V5::PINGRESP: break; // We ignore ping response
         case Protocol::MQTT::V5::DISCONNECT: impl->close(); return ErrorType::NotConnected; // No work to perform upon server sending disconnect 
+        case Protocol::MQTT::V5::PUBLISH:
+        {
+            Protocol::MQTT::V5::ROPublishPacket packet;
+            int ret = impl->extractControlPacket(type, packet);
+            if (ret == 0) { impl->close(); return ErrorType::NotConnected; }
+            if (ret < 0) return ErrorType::NetworkError;
+            impl->cb->messageReceived(packet.fixedVariableHeader.topicName, DynamicBinDataView(packet.payload.size, packet.payload.data), packet.fixedVariableHeader.packetID, packet.props);
+            return enterPublishCycle(packet, false);
+        }
+#if 0
 #if MQTTSupportQoSLevel > 1
         case Protocol::MQTT::V5::PUBREL: 
         {
@@ -1284,6 +1354,7 @@ namespace Network { namespace Client {
             impl->cb->messageReceived(packet.fixedVariableHeader.topicName, DynamicBinDataView(packet.payload.size, packet.payload.data), packet.fixedVariableHeader.packetID, packet.props);
             break;
         }
+#endif
         default: // Ignore all other packets currently 
             break;
         }
@@ -1324,7 +1395,7 @@ namespace Network { namespace Client {
 
     void MQTTv5::setDefaultTimeout(const uint32 timeoutMs)
     {
-        impl->timeoutMs = timeoutMs;
+        impl->setTimeout(timeoutMs);
     }
 
 }}
