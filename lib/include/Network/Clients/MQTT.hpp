@@ -19,11 +19,11 @@
     Default: 0 */ 
 #define MQTTDumpCommunication 0
 
-/** Limit supported QoS mode in client.
-    This removes QoS processing for value above this threshold (reduce binary code size but might remove 
-    fundamental feature for your application). Changing this might break your client code
-    Default: 2 (all mode supported, 1: up to "at least one", 0: only "at most one") */
-#define MQTTSupportQoSLevel 2
+/** Remove all validation from MQTT types.
+    This removes validation check for all MQTT types in order to save binary size. 
+    This is only recommanded if you are sure about your broker implementation (don't set this to 1 if you 
+    intend to connect on unknown broker) */
+#define MQTTAvoidValidation 1
 
 /** Simple socket code.
     If set to true, this disables the optimized network code from ClassPath and fallback to the minimal subset 

@@ -6,7 +6,6 @@
 // We need Platform code for allocations too
 #include "../../Platform/Platform.hpp"
 
-
 #if (MQTTDumpCommunication == 1)
     // Because all projects are different, it's hard to give a generic method for dumping elements.
     // So we end up with only limited dependencies:
@@ -99,8 +98,8 @@ namespace Protocol
                 /** Check if this object is correct after deserialization */
                 virtual bool check() const { return true; }
 #endif
-                /** Required destructor */
-                virtual ~Serializable() {}
+                /** Required destructor - Not virtual here, it's never deleted virtually */
+                ~Serializable() {}
             };
             
             /** Empty serializable used for generic code to avoid useless specific case in packet serialization */
@@ -128,18 +127,6 @@ namespace Protocol
 #endif
             };
             
-            /** A serializable with suicide characteristics 
-                Typically, some structure are using list internally. 
-                You can build list either by chaining items that are allocated with new or stack allocated.
-                In that case, you can't delete the next pointer inconditionnally, you need to got through a specialization
-                depending on the allocation type (heap or stack).
-                So instead call suicide and the stack based topic won't delete upon suiciding */
-            struct SerializableWithSuicide : public Serializable
-            {
-                /** Commit suicide. This is overloaded on stack allocated properties to avoid calling delete here */
-                virtual void suicide() { delete this; }
-            };
-
             
             /** The visitor that'll be called with the relevant value */
             struct MemMappedVisitor
@@ -755,7 +742,7 @@ namespace Protocol
             using namespace Protocol::MQTT::Common;
             
             /** A generic type erasure class to minimize different code dealing with types */
-            struct Hidden GenericTypeBase
+            struct GenericTypeBase
             {
                 virtual uint32 typeSize() const = 0;
                 /** From network and To network are supposed to be called in succession 
@@ -765,12 +752,11 @@ namespace Protocol
 #if MQTTAvoidValidation != 1                
                 bool check() const { return true; }
 #endif
-                ~GenericTypeBase() {}
             };
             /** A globally used GenericType that's there to minimize the number of generic code 
                 that needs to be specialized by the compiler */
             template <typename T>
-            struct Hidden GenericType : public GenericTypeBase
+            struct GenericType : public GenericTypeBase
             {
                 T value;
                 uint32 typeSize() const { return sizeof(T); }
@@ -892,12 +878,12 @@ namespace Protocol
 #endif    
 
                 FixedHeaderBase(const ControlPacketType type, const uint8 flags) : typeAndFlags(((uint8)type) << 4 | (flags & 0xF)) {}
-                virtual ~FixedHeaderBase() {} 
+                ~FixedHeaderBase() {} // Not virtual here to avoid generating 
             };
 
             /** The common format for the fixed header type */
             template <ControlPacketType type, uint8 flags>
-            struct Hidden FixedHeaderType Final : public FixedHeaderBase
+            struct FixedHeaderType Final : public FixedHeaderBase
             {
                 bool                check() const { return getFlags() == flags; }
                 static bool         check(const uint8 flag) { return flag == flags; }
@@ -907,7 +893,7 @@ namespace Protocol
             
             /** The only header where flags have a meaning is for Publish operation */
             template <>
-            struct Hidden FixedHeaderType<PUBLISH, 0> Final : public FixedHeaderBase
+            struct FixedHeaderType<PUBLISH, 0> Final : public FixedHeaderBase
             {                
                 bool isDup()     const { return typeAndFlags & 0x8; }
                 bool isRetain()  const { return typeAndFlags & 0x1; }
@@ -1002,8 +988,43 @@ namespace Protocol
 
             namespace PrivateRegistry
             {
+                template <typename T> struct SizeOf { enum { Size = sizeof(T) }; };
+
+                // Not using variadic template here since this can be built without C++11
+                template <typename T, typename U> 
+                struct MaxSize { enum { Size = sizeof(T) > U::Size ? sizeof(T) : U::Size }; };
+
+                struct MaxVisitorsSize
+                {
+                    enum { Size = MaxSize<PODVisitor<uint8>, 
+                        MaxSize<LittleEndianPODVisitor<uint16>, 
+                        MaxSize<LittleEndianPODVisitor<uint32>,
+                        MaxSize<MappedVBInt,
+                        MaxSize<DynamicBinDataView,
+                        MaxSize<DynamicStringView,
+                        SizeOf<DynamicStringPairView> > > > > > >::Size };
+                };
+
+                // Copy of std::is_same that should work even without C++11
+                struct false_type { enum { Value = false}; };
+                struct true_type { enum { Value = true}; };
+                template<typename, typename> struct is_same : public false_type { };
+                template<typename T>         struct is_same<T, T> : public true_type { };
+
+                // By default, all types are invalid except for those below
+                template <typename T> struct isValidType {};
+
+                template<> struct isValidType< PODVisitor<uint8>              > { enum { Value = 0 }; };
+                template<> struct isValidType< LittleEndianPODVisitor<uint16> > { enum { Value = 1 }; };
+                template<> struct isValidType< LittleEndianPODVisitor<uint32> > { enum { Value = 2 }; };
+                template<> struct isValidType< MappedVBInt                    > { enum { Value = 3 }; };
+                template<> struct isValidType< DynamicBinDataView             > { enum { Value = 4 }; };
+                template<> struct isValidType< DynamicStringView              > { enum { Value = 5 }; };
+                template<> struct isValidType< DynamicStringPairView          > { enum { Value = 6 }; };
+                
+
                 enum { PropertiesCount = 27 };
-                static const uint8 Hidden invPropertyMap[MaxUsedPropertyType] =
+                static const uint8 invPropertyMap[MaxUsedPropertyType] =
                 {
                     PropertiesCount, // BadProperty,  
                      0, // PayloadFormat           ,
@@ -1069,17 +1090,197 @@ namespace Protocol
                 }
             }
             
+            /** Avoid storing many instance of static visitors in BSS and memory.
+                Instead, use a variant and only store the index to the visitor type.
+                Currently, the possible property types are:
+                    PODVisitor<uint8>             
+                    LittleEndianPODVisitor<uint16>
+                    LittleEndianPODVisitor<uint32>
+                    MappedVBInt                   
+                    DynamicBinDataView            
+                    DynamicStringView             
+                    DynamicStringPairView         
+            */
+            struct VisitorVariant
+            {
+            private:
+                /** Where the buffer for the visitor is being build */
+                uint8 buffer[PrivateRegistry::MaxVisitorsSize::Size];
+                /** The visitor type */
+                uint8 type;
+            
+				MemMappedVisitor * getBase()
+				{
+                    switch(type)
+                    {
+                    case 0: return static_cast<MemMappedVisitor*>(reinterpret_cast< PODVisitor<uint8>* >             (buffer));
+                    case 1: return static_cast<MemMappedVisitor*>(reinterpret_cast< LittleEndianPODVisitor<uint16>* >(buffer)); 
+                    case 2: return static_cast<MemMappedVisitor*>(reinterpret_cast< LittleEndianPODVisitor<uint32>* >(buffer)); 
+                    case 3: return static_cast<MemMappedVisitor*>(reinterpret_cast< MappedVBInt *>                   (buffer));
+                    case 4: return static_cast<MemMappedVisitor*>(reinterpret_cast< DynamicBinDataView *>            (buffer));
+                    case 5: return static_cast<MemMappedVisitor*>(reinterpret_cast< DynamicStringView *>             (buffer));
+                    case 6: return static_cast<MemMappedVisitor*>(reinterpret_cast< DynamicStringPairView *>         (buffer));
+                    default: return 0; 
+                    }
+				}
+            public:
+                uint32 acceptBuffer(const uint8 * buf, const uint32 bufLength)
+                {
+                    if (MemMappedVisitor * v = getBase()) return v->acceptBuffer(buf, bufLength);
+                    return BadData;
+                }
+
+#if MQTTDumpCommunication == 1
+                void dump(MQTTString & out, const int indent = 0) 
+                {
+                    if (MemMappedVisitor * v = getBase()) v->dump(out, indent);
+                }
+#endif
+
+
+                template <typename T>
+                T * as() 
+                {
+                    switch (type)
+                    {
+                    case 0: return PrivateRegistry::is_same<T, PODVisitor<uint8> >             ::Value ? reinterpret_cast<T*>(buffer) : 0;
+                    case 1: return PrivateRegistry::is_same<T, LittleEndianPODVisitor<uint16> >::Value ? reinterpret_cast<T*>(buffer) : 0;
+                    case 2: return PrivateRegistry::is_same<T, LittleEndianPODVisitor<uint32> >::Value ? reinterpret_cast<T*>(buffer) : 0;
+                    case 3: return PrivateRegistry::is_same<T, MappedVBInt >                   ::Value ? reinterpret_cast<T*>(buffer) : 0;
+                    case 4: return PrivateRegistry::is_same<T, DynamicBinDataView >            ::Value ? reinterpret_cast<T*>(buffer) : 0;
+                    case 5: return PrivateRegistry::is_same<T, DynamicStringView >             ::Value ? reinterpret_cast<T*>(buffer) : 0;
+                    case 6: return PrivateRegistry::is_same<T, DynamicStringPairView >         ::Value ? reinterpret_cast<T*>(buffer) : 0;
+                    default: return 0;
+                    } 
+                }
+//                template <typename T>
+//                inline T* as(T* const &) { return as<T>(); }
+
+                /** Mutate with the given type */
+                bool mutate(const uint8 type)
+                {
+                    switch(type)
+                    {
+                    case 0: mutate< PODVisitor<uint8> >             (); return true;
+                    case 1: mutate< LittleEndianPODVisitor<uint16> >(); return true;
+                    case 2: mutate< LittleEndianPODVisitor<uint32> >(); return true;
+                    case 3: mutate< MappedVBInt >                   (); return true;
+                    case 4: mutate< DynamicBinDataView >            (); return true;
+                    case 5: mutate< DynamicStringView >             (); return true;
+                    case 6: mutate< DynamicStringPairView >         (); return true;
+                    default: this->type = type; return false;
+                    }
+                }
+
+                template <typename T>
+                void mutate()
+                {
+                    // If the compiler stops here, it means you're trying to get a visitor for an unsupported type
+                    // Only supported types are written above
+                    type = PrivateRegistry::isValidType<T>::Value;
+                    new (buffer) T();
+                }
+
+                /** By default, it's an invalid variant */
+                VisitorVariant() : type(7) {}
+
+                template <typename T>
+                VisitorVariant() : type(PrivateRegistry::isValidType<T>::Value) { new (buffer) T(); }
+
+                ~VisitorVariant() {} // No destruction required here
+            };
+
+
+            /** A registry used to store the mapping between properties and their visitor */
+            class MemMappedPropertyRegistry
+            {
+                uint8 propertiesType[PrivateRegistry::PropertiesCount]; 
+
+            public:
+                /** Singleton pattern */
+                static MemMappedPropertyRegistry & getInstance()
+                {
+                    static MemMappedPropertyRegistry registry;
+                    return registry;
+                }
+
+                /** Get the property name (used for dumping code mainly) */
+                static const char * getPropertyName(const uint8 propertyType) { return PrivateRegistry::getPropertyName(propertyType); }
+
+                /** Get a visitor for the given property.
+                    You provide a visitor variant as input and it'll be mutated for the given property type.
+                    You can then use VisitorVariant::acceptBuffer or VisitorVariant::as to get back the 
+                    real visited type. 
+                    
+                    Example code:
+                    @code
+                        VisitorVariant visitor;
+                        if (MemMappedPropertyRegistry::getInstance().getVisitorForProperty(visitor, MaxPacketSize)
+                            && visitor.acceptBuffer(buffer, bufLength))
+                        {
+                            auto maxSize = visitor.as< LittleEndianPODVisitor<uint32> >();
+                            printf("Max packet size: %u\n", maxSize);
+                        }
+                    @endcode
+                    */ 
+                bool getVisitorForProperty(VisitorVariant & visitor, const uint8 propertyType)
+                {
+                    if (propertyType >= MaxUsedPropertyType) return false;
+
+                    uint8 index = PrivateRegistry::invPropertyMap[propertyType];
+                    if (index == PrivateRegistry::PropertiesCount) return false;
+                    return visitor.mutate(propertiesType[index]);
+                }
+
+            private:
+                MemMappedPropertyRegistry()
+                {
+                    // Register all properties now
+                    propertiesType[ 0] = 0; /* PODVisitor<uint8>              */ // PayloadFormat         
+                    propertiesType[ 1] = 2; /* LittleEndianPODVisitor<uint32> */ // MessageExpiryInterval 
+                    propertiesType[ 2] = 5; /* DynamicStringView              */ // ContentType           
+                    propertiesType[ 3] = 5; /* DynamicStringView              */ // ResponseTopic         
+                    propertiesType[ 4] = 4; /* DynamicBinDataView             */ // CorrelationData       
+                    propertiesType[ 5] = 3; /* MappedVBInt                    */ // SubscriptionID        
+                    propertiesType[ 6] = 2; /* LittleEndianPODVisitor<uint32> */ // SessionExpiryInterval 
+                    propertiesType[ 7] = 5; /* DynamicStringView              */ // AssignedClientID      
+                    propertiesType[ 8] = 1; /* LittleEndianPODVisitor<uint16> */ // ServerKeepAlive       
+                    propertiesType[ 9] = 5; /* DynamicStringView              */ // AuthenticationMethod  
+                    propertiesType[10] = 4; /* DynamicBinDataView             */ // AuthenticationData    
+                    propertiesType[11] = 0; /* PODVisitor<uint8>              */ // RequestProblemInfo    
+                    propertiesType[12] = 2; /* LittleEndianPODVisitor<uint32> */ // WillDelayInterval     
+                    propertiesType[13] = 0; /* PODVisitor<uint8>              */ // RequestResponseInfo   
+                    propertiesType[14] = 5; /* DynamicStringView              */ // ResponseInfo          
+                    propertiesType[15] = 5; /* DynamicStringView              */ // ServerReference       
+                    propertiesType[16] = 5; /* DynamicStringView              */ // ReasonString          
+                    propertiesType[17] = 1; /* LittleEndianPODVisitor<uint16> */ // ReceiveMax            
+                    propertiesType[18] = 1; /* LittleEndianPODVisitor<uint16> */ // TopicAliasMax         
+                    propertiesType[19] = 1; /* LittleEndianPODVisitor<uint16> */ // TopicAlias            
+                    propertiesType[20] = 0; /* PODVisitor<uint8>              */ // QoSMax                
+                    propertiesType[21] = 0; /* PODVisitor<uint8>              */ // RetainAvailable       
+                    propertiesType[22] = 6; /* DynamicStringPairView          */ // UserProperty          
+                    propertiesType[23] = 2; /* LittleEndianPODVisitor<uint32> */ // PacketSizeMax         
+                    propertiesType[24] = 0; /* PODVisitor<uint8>              */ // WildcardSubAvailable  
+                    propertiesType[25] = 0; /* PODVisitor<uint8>              */ // SubIDAvailable        
+                    propertiesType[26] = 0; /* PODVisitor<uint8>              */ // SharedSubAvailable    
+                }
+            };
+
             
             /** This is a simple property header that's common to all properties */
-            struct PropertyBase : public SerializableWithSuicide
+            struct PropertyBase : public Serializable
             {
                 /** While we should support a variable length property type, there is no property type allowed above 127 for now, so let's resume to a single uint8 */
                 const uint8 type;
+                /** Whether we need to delete the object (default to false) */
+                bool heapAllocated; 
                 /** The property type */
-                PropertyBase(const PropertyType type) : type((uint8)type) {}
+                PropertyBase(const PropertyType type, const bool heap = false) : type((uint8)type), heapAllocated(heap) {}
                 /** Clone the property */
                 virtual PropertyBase * clone() const = 0;
-                /** Required destructor */
+                /** Suicide */
+                virtual void suicide() { if (heapAllocated) delete this; }
+                /** Virtual destructor is required since we destruct virtually the chained list */
                 virtual ~PropertyBase() {}
             };
             
@@ -1094,77 +1295,6 @@ namespace Protocol
                 virtual ~PropertyBaseView() {}
             };
 
-
-
-            template <typename T>
-            struct Hidden MMProp
-            {
-                static MemMappedVisitor & getInstance()
-                {
-#if (WantThreadLocalStorage == 1)
-                    static TLSDecl T visitor; return visitor;
-#else
-                    static T visitor; return visitor;
-#endif
-                }
-            };
-
-            /** A registry used to store the mapping between properties and their visitor */
-            class MemMappedPropertyRegistry
-            {
-                MemMappedVisitor * properties[PrivateRegistry::PropertiesCount];
-                
-            public:
-                static MemMappedPropertyRegistry & getInstance()
-                {
-                    static MemMappedPropertyRegistry registry;
-                    return registry;
-                }
-
-                const char * getPropertyName(const uint8 propertyType) { return PrivateRegistry::getPropertyName(propertyType); }
-
-                MemMappedVisitor * getVisitorForProperty(const uint8 propertyType)
-                {
-                    if (propertyType >= MaxUsedPropertyType) return 0;
-
-                    uint8 index = PrivateRegistry::invPropertyMap[propertyType];
-                    if (index == PrivateRegistry::PropertiesCount) return 0;
-                    return properties[index];
-                }
-
-            private:
-                MemMappedPropertyRegistry()
-                {
-                    // Register all properties now
-                    properties[ 0] = &MMProp< PODVisitor<uint8>              >::getInstance(); // PayloadFormat         
-                    properties[ 1] = &MMProp< LittleEndianPODVisitor<uint32> >::getInstance(); // MessageExpiryInterval 
-                    properties[ 2] = &MMProp< DynamicStringView              >::getInstance(); // ContentType           
-                    properties[ 3] = &MMProp< DynamicStringView              >::getInstance(); // ResponseTopic         
-                    properties[ 4] = &MMProp< DynamicBinDataView             >::getInstance(); // CorrelationData       
-                    properties[ 5] = &MMProp< MappedVBInt                    >::getInstance(); // SubscriptionID        
-                    properties[ 6] = &MMProp< LittleEndianPODVisitor<uint32> >::getInstance(); // SessionExpiryInterval 
-                    properties[ 7] = &MMProp< DynamicStringView              >::getInstance(); // AssignedClientID      
-                    properties[ 8] = &MMProp< LittleEndianPODVisitor<uint16> >::getInstance(); // ServerKeepAlive       
-                    properties[ 9] = &MMProp< DynamicStringView              >::getInstance(); // AuthenticationMethod  
-                    properties[10] = &MMProp< DynamicBinDataView             >::getInstance(); // AuthenticationData    
-                    properties[11] = &MMProp< PODVisitor<uint8>              >::getInstance(); // RequestProblemInfo    
-                    properties[12] = &MMProp< LittleEndianPODVisitor<uint32> >::getInstance(); // WillDelayInterval     
-                    properties[13] = &MMProp< PODVisitor<uint8>              >::getInstance(); // RequestResponseInfo   
-                    properties[14] = &MMProp< DynamicStringView              >::getInstance(); // ResponseInfo          
-                    properties[15] = &MMProp< DynamicStringView              >::getInstance(); // ServerReference       
-                    properties[16] = &MMProp< DynamicStringView              >::getInstance(); // ReasonString          
-                    properties[17] = &MMProp< LittleEndianPODVisitor<uint16> >::getInstance(); // ReceiveMax            
-                    properties[18] = &MMProp< LittleEndianPODVisitor<uint16> >::getInstance(); // TopicAliasMax         
-                    properties[19] = &MMProp< LittleEndianPODVisitor<uint16> >::getInstance(); // TopicAlias            
-                    properties[20] = &MMProp< PODVisitor<uint8>              >::getInstance(); // QoSMax                
-                    properties[21] = &MMProp< PODVisitor<uint8>              >::getInstance(); // RetainAvailable       
-                    properties[22] = &MMProp< DynamicStringPairView          >::getInstance(); // UserProperty          
-                    properties[23] = &MMProp< LittleEndianPODVisitor<uint32> >::getInstance(); // PacketSizeMax         
-                    properties[24] = &MMProp< PODVisitor<uint8>              >::getInstance(); // WildcardSubAvailable  
-                    properties[25] = &MMProp< PODVisitor<uint8>              >::getInstance(); // SubIDAvailable        
-                    properties[26] = &MMProp< PODVisitor<uint8>              >::getInstance(); // SharedSubAvailable    
-                }
-            };
 
             struct PropertyBaseImpl : public PropertyBase
             {
@@ -1191,12 +1321,12 @@ namespace Protocol
                 bool check() const { return type < 0x80; }
 #endif
                 /** The default constructor */
-                PropertyBaseImpl(const PropertyType type, GenericTypeBase & v) : PropertyBase(type), value(v) {}
+                PropertyBaseImpl(const PropertyType type, GenericTypeBase & v, const bool heap = false) : PropertyBase(type, heap), value(v) {}
             };
 
             /** The link between the property type and its possible value follow section 2.2.2.2 */
             template <typename T>
-            struct Property : public PropertyBaseImpl
+            struct Property Final : public PropertyBaseImpl
             {
                 /** The property value, depends on the type */
                 GenericType<T>           value;
@@ -1210,22 +1340,10 @@ namespace Protocol
 #endif
 
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value.value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value.value, true); }
 
                 /** The default constructor */
-                Property(const PropertyType type, T v = 0) : PropertyBaseImpl(type, value), value(v) {}
-            };
-
-            /** A property that's allocated on the stack. It never suicide itself. */
-            template <typename T>
-            struct StackProperty Final : public Property<T>
-            {
-                /** The default constructor */
-                StackProperty(const PropertyType type, T value = 0) : Property<T>(type, value) {}
-                /** Clone this property by a non stack based property */
-                PropertyBase * clone() const { return new Property<T>((PropertyType)this->type, this->value.value); }
-                /** Don't ever suicide! */
-                void suicide() {}
+                Property(const PropertyType type, T v = 0, const bool heap = false) : PropertyBaseImpl(type, value, heap), value(v) {}
             };
             
             template<>
@@ -1263,10 +1381,10 @@ namespace Protocol
                 }
 #endif
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
 
                 /** The default constructor */
-                Property(const PropertyType type, const DynamicString value = "") : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, const DynamicString value = "", const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
 
             template<>
@@ -1305,10 +1423,10 @@ namespace Protocol
 #endif
 
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
 
                 /** The default constructor */
-                Property(const PropertyType type, const DynamicBinaryData value = 0) : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, const DynamicBinaryData value = 0, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
 
             template<>
@@ -1346,10 +1464,10 @@ namespace Protocol
                 }
 #endif
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
 
                 /** The default constructor */
-                Property(const PropertyType type, const DynamicStringPair value) : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, const DynamicStringPair value, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
 
 
@@ -1388,10 +1506,10 @@ namespace Protocol
                 }
 #endif
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
 
                 /** The default constructor */
-                Property(const PropertyType type, const DynamicStringView value = "") : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, const DynamicStringView value = "", const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
 
             template<>
@@ -1429,9 +1547,9 @@ namespace Protocol
                 }
 #endif
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** The default constructor */
-                Property(const PropertyType type, const DynamicBinDataView value = 0) : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, const DynamicBinDataView value = 0, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
 
             template<>
@@ -1469,9 +1587,9 @@ namespace Protocol
                 }
 #endif
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** The default constructor */
-                Property(const PropertyType type, const DynamicStringPairView value) : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, const DynamicStringPairView value, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
 
             
@@ -1511,10 +1629,10 @@ namespace Protocol
 #endif
 
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
 
                 /** The default constructor */
-                Property(const PropertyType type, const uint32 value = 0) : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, const uint32 value = 0, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
             
             /** The deserialization registry for properties */
@@ -1882,20 +2000,19 @@ namespace Protocol
                     @param type     On output, will be filled with the given type or BadProperty if none found
                     @param offset   On output, will be filled to the offset in bytes to the next property
                     @return A pointer on a static instance (stored on TLS if WantThreadLocalStorage is defined) or 0 upon error */
-                MemMappedVisitor * getProperty(PropertyType & type, uint32 & offset) const
+                bool getProperty(VisitorVariant & visitor, PropertyType & type, uint32 & offset) const
                 {
                     type = BadProperty;
-                    if (offset >= (uint32)length || !buffer) return 0;
+                    if (offset >= (uint32)length || !buffer) return false;
                     // Deduce property type from the given byte
                     uint8 t = buffer[offset];
-                    MemMappedVisitor * visitor = MemMappedPropertyRegistry::getInstance().getVisitorForProperty(t);
-                    if (!visitor) return 0;
+                    if (!MemMappedPropertyRegistry::getInstance().getVisitorForProperty(visitor, t)) return 0;
                     type = (PropertyType)t;
                     // Then visit the property now
-                    uint32 r = visitor->acceptBuffer(&buffer[offset + 1], (uint32)length - offset - 1);
-                    if (isError(r)) return 0;
+                    uint32 r = visitor.acceptBuffer(&buffer[offset + 1], (uint32)length - offset - 1);
+                    if (isError(r)) return false;
                     offset += r + 1;
-                    return visitor;
+                    return true;
                 }
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return length.getSize() + (uint32)length; }
@@ -1929,10 +2046,11 @@ namespace Protocol
                     out += MQTTStringPrintf("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
                     if (!(uint32)length) return;
                     PropertyType type; uint32 offset = 0;
-                    while (MemMappedVisitor * visitor = getProperty(type, offset))
+                    VisitorVariant visitor;
+                    while (getProperty(visitor, type, offset))
                     {
                         out += MQTTStringPrintf("%*sType %s\n", indent+2, "", PrivateRegistry::getPropertyName(type));
-                        visitor->dump(out, indent + 4);
+                        visitor.dump(out, indent + 4);
                     }
                 }
 #endif                
@@ -1978,13 +2096,51 @@ namespace Protocol
                 ExactlyOne                          = 2,    //!< Exactly one delivery (longer to send) 
             };
 
- #pragma pack(push, 1)
-            /** The subscribe topic list */
-            struct SubscribeTopic : public SerializableWithSuicide
+            struct ScribeTopicBase : public Serializable
             {
-                /** The subscribe topic */
-                DynString   topic;
+            protected:
+                /** The scribe topic */
+                DynString           topic;
+                /** The next pointer in the list */
+                ScribeTopicBase *   next;
+                /** Check if it's stack allocated or not */
+                bool                stackBased;
 
+            public:
+                /** This give the size required for serializing this property header in bytes */
+                uint32 getSize() const { return topic.getSize() + 1 + (next ? next->getSize() : 0); }
+#if MQTTAvoidValidation != 1                
+                /** Check if this property is valid */
+                bool check() const { return topic.check() && (next ? next->check() : true); }
+#endif
+#if MQTTDumpCommunication == 1
+                void dump(MQTTString & out, const int indent = 0) 
+                { 
+                    topic.dump(out, indent); 
+                    if (next) next->dump(out, indent);
+                }
+#endif
+
+
+            public:
+                /** Main suicide function */
+                void suicide() { if (next) next->suicide(); if (!stackBased) delete this; }
+                /** Append a subscribe topic to the end of this list */
+                void append(ScribeTopicBase * newTopic) { ScribeTopicBase ** end = &next; while(*end) { end = &(*end)->next; } *end = newTopic; }
+                /** Count the number of topic */
+                uint32 count() const { uint32 c = 1; const ScribeTopicBase * p = next; while (p) { c++; p = p->next; } return c; }
+
+
+            public:
+                ScribeTopicBase(const bool stackBased) : next(0), stackBased(stackBased) {}
+                ScribeTopicBase(const DynString & topic, const bool stackBased) : topic(topic), next(0), stackBased(stackBased) {}
+                virtual ~ScribeTopicBase() { next = 0; }
+            };
+
+#pragma pack(push, 1)
+            /** The subscribe topic list */
+            struct SubscribeTopic Final : public ScribeTopicBase
+            {
                 union
                 {
                     /** The subscribe option */
@@ -2016,10 +2172,6 @@ namespace Protocol
 #endif
                     };
                 };
-                /** If there is a next topic, we need to access it */
-                SubscribeTopic * next;
-                /** This give the size required for serializing this property header in bytes */
-                uint32 getSize() const { return topic.getSize() + 1 + (next ? next->getSize() : 0); }
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */
@@ -2056,51 +2208,29 @@ namespace Protocol
 #endif
 #if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
-                bool check() const { return reserved == 0 && retainAsPublished != 3 && QoS != 3 && topic.check() && (next ? next->check() : true); }
+                bool check() const { return reserved == 0 && retainAsPublished != 3 && QoS != 3 && ScribeTopicBase::check(); }
 #endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += MQTTStringPrintf("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", QoS, nonLocal, retainAsPublished, retainHandling); topic.dump(out, indent); 
-                    if (next) next->dump(out, indent);
+                    out += MQTTStringPrintf("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", QoS, nonLocal, retainAsPublished, retainHandling); 
+                    ScribeTopicBase::dump(out, indent);
                 }
 #endif
 
                 /** Append a subscribe topic to the end of this list */
-                void append(SubscribeTopic * newTopic) { SubscribeTopic ** end = &next; while(*end) { end = &(*end)->next; } *end = newTopic; }
-                /** Count the number of topic */
-                uint32 count() const { uint32 c = 1; const SubscribeTopic * p = next; while (p) { c++; p = p->next; } return c; }
+                inline void append(SubscribeTopic * newTopic) { ScribeTopicBase::append(newTopic); }
 
                 /** Default constructor */
-                SubscribeTopic() : option(0), next(0) {}
+                SubscribeTopic(const bool stackBased = false) : ScribeTopicBase(stackBased), option(0) {}
                 /** Full constructor */
-                SubscribeTopic(const DynString & topic, const uint8 retainHandling, const bool retainAsPublished, const bool nonLocal, const uint8 QoS)
-                    : topic(topic), option(0), next(0) { this->retainHandling = retainHandling; this->retainAsPublished = retainAsPublished ? 1 : 0; this->nonLocal = nonLocal ? 1:0; this->QoS = QoS; }
-                /** Obvious destructor */
-                ~SubscribeTopic() { if (next) next->suicide(); next = 0; }
-            };
-
-            /** A stack based subscribe topic */
-            struct StackSubscribeTopic Final : public SubscribeTopic
-            {
-                /** Make sure to call the next item as it might be heap allocated */
-                void suicide() { if (next) next->suicide(); }
-
-                StackSubscribeTopic(const DynString & topic, const uint8 retainHandling, const bool retainAsPublished, const bool nonLocal, const uint8 QoS)
-                    : SubscribeTopic(topic, retainHandling, retainAsPublished, nonLocal, QoS) {}
-            };
-            
+                SubscribeTopic(const DynString & topic, const uint8 retainHandling, const bool retainAsPublished, const bool nonLocal, const uint8 QoS, const bool stackBased = false)
+                    : ScribeTopicBase(topic, stackBased), option(0) { this->retainHandling = retainHandling; this->retainAsPublished = retainAsPublished ? 1 : 0; this->nonLocal = nonLocal ? 1:0; this->QoS = QoS; }
+            };            
 #pragma pack(pop)
             /** The unsubscribe topic list */
-            struct UnsubscribeTopic : public SerializableWithSuicide
+            struct UnsubscribeTopic : public ScribeTopicBase
             {
-                /** The unsubscribe topic */
-                DynString           topic;
-                /** If there is a next topic, we need to access it */
-                UnsubscribeTopic *  next;
-
-                /** This give the size required for serializing this property header in bytes */
-                uint32 getSize() const { return topic.getSize() + (next ? next->getSize() : 0); }
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */
@@ -2132,42 +2262,23 @@ namespace Protocol
                     return o;
                 }
 #endif
-#if MQTTAvoidValidation != 1                
-                /** Check if this property is valid */
-                bool check() const { return topic.check(); }
-#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
                     out += MQTTStringPrintf("%*sUnsubscribe: ", (int)indent, ""); topic.dump(out, indent); 
-                    if (next) next->dump(out, indent);
+                    ScribeTopicBase::dump(out, indent);
                 }
 #endif
 
                 /** Append a subscribe topic to the end of this list */
-                void append(UnsubscribeTopic * newTopic) { UnsubscribeTopic ** end = &next; while(*end) { end = &(*end)->next; } *end = newTopic; }
-                /** Count the number of topic */
-                uint32 count() const { uint32 c = 1; const UnsubscribeTopic * p = next; while (p) { c++; p = p->next; } return c; }
+                inline void append(UnsubscribeTopic * newTopic) { ScribeTopicBase::append(newTopic); }
 
                 /** Default constructor */
-                UnsubscribeTopic() : next(0) {}
+                UnsubscribeTopic(const bool stackBased = false) : ScribeTopicBase(stackBased) {}
                 /** Full constructor */
-                UnsubscribeTopic(const DynString & topic)
-                    : topic(topic), next(0) {}
-                /** Obvious destructor */
-                ~UnsubscribeTopic() { if (next) next->suicide(); next = 0; }
+                UnsubscribeTopic(const DynString & topic, const bool stackBased = false)
+                    : ScribeTopicBase(topic, stackBased) {}
             };
-
-            /** A stack based unsubscribe topic */
-            struct StackUnsubscribeTopic Final : public UnsubscribeTopic
-            {
-                /** Make sure to call the next item as it might be heap allocated */
-                void suicide() { if (next) next->suicide(); }
-
-                StackUnsubscribeTopic(const DynString & topic)
-                    : UnsubscribeTopic(topic) {}
-            };
-
             
             /** The variable header presence for each possible packet type, the payload presence in each packet type */
             template <ControlPacketType type>
@@ -2199,6 +2310,8 @@ namespace Protocol
                 virtual void setFlags(const FixedFieldGeneric &) {}
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
                 virtual void setExpectedPacketSize(uint32) {}
+
+                ~SerializablePayload() {}
             };
 
             template <ControlPacketType type>
@@ -2316,7 +2429,7 @@ namespace Protocol
             };
 
             template<>
-            struct Hidden GenericType<ConnectHeaderImpl> Final : public GenericTypeBase
+            struct GenericType<ConnectHeaderImpl> Final : public GenericTypeBase
             {
                 ConnectHeaderImpl & value;
                 uint32 typeSize() const { return sizeof(value); }
@@ -2361,7 +2474,7 @@ namespace Protocol
             };
 #pragma pack(pop)
 
-            template<> struct Hidden GenericType<ConnACKHeaderImpl> Final : public GenericTypeBase
+            template<> struct GenericType<ConnACKHeaderImpl> Final : public GenericTypeBase
             {
                 ConnACKHeaderImpl & value;
                 uint32 typeSize() const { return sizeof(value); }
@@ -2420,6 +2533,9 @@ namespace Protocol
             {
                 /** The connect reason */
                 GenericType<uint8> reasonCode;
+
+                /** Allow conversion to reason code here directly */
+                ReasonCodes reason() const { return (ReasonCodes)reasonCode.value; }
                 
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*Control packet (reason %u)\n", (int)indent, "", (uint8)reasonCode); }
@@ -2434,7 +2550,7 @@ namespace Protocol
             };
             
 #pragma pack(push, 1)
-            struct Hidden IDAndReason
+            struct IDAndReason
             {
                 /** The packet identifier */
                 uint16 packetID;
@@ -2445,7 +2561,7 @@ namespace Protocol
             };
 #pragma pack(pop)
 
-            template<> struct Hidden GenericType<IDAndReason> Final : public GenericTypeBase
+            template<> struct GenericType<IDAndReason> Final : public GenericTypeBase
             {
                 IDAndReason & value;
                 uint32 typeSize() const { return sizeof(value); }
@@ -2530,7 +2646,7 @@ namespace Protocol
             };
 #pragma pack(pop)
 
-            template<> struct Hidden GenericType<TopicAndID> Final : public GenericTypeBase
+            template<> struct GenericType<TopicAndID> Final : public GenericTypeBase
             {
                 TopicAndID & value;
                 uint32 typeSize() const { return value.topicName.getSize(); }
@@ -2990,29 +3106,22 @@ namespace Protocol
                 The data is a array of reason code, and it should contains as many reasons as found in unsubscribe packet received */
             template<> struct Payload<UNSUBACK> Final: public PayloadWithData<true> {};
 
-            struct ROPayloadPublish             Final: public PayloadWithData<false> { };
-            struct ROPayloadSubACK              Final: public PayloadWithData<false> { };
-            struct ROPayloadUnsubACK            Final: public PayloadWithData<false> { };
-
 
             template <ControlPacketType type, bool>
             struct PayloadSelector { typedef Payload<type> PayloadType; };
 
-            template <> struct PayloadSelector<PUBLISH, true>   { typedef ROPayloadPublish  PayloadType; };
-            template <> struct PayloadSelector<SUBACK, true>    { typedef ROPayloadSubACK   PayloadType; };
-            template <> struct PayloadSelector<UNSUBACK, true>  { typedef ROPayloadUnsubACK PayloadType; };
+            template <> struct PayloadSelector<PUBLISH, true>   { typedef PayloadWithData<false> PayloadType; };
+            template <> struct PayloadSelector<SUBACK, true>    { typedef PayloadWithData<false> PayloadType; };
+            template <> struct PayloadSelector<UNSUBACK, true>  { typedef PayloadWithData<false> PayloadType; };
 
             // Those don't have any payload, let's simplify them
-            template <ControlPacketType type>
-            struct EmptySerializableWithoutFlags : public SerializablePayload {};
-            // Implementation here
-            template <bool a> struct PayloadSelector<CONNACK, a>    { typedef EmptySerializableWithoutFlags<CONNACK>    PayloadType; };
-            template <bool a> struct PayloadSelector<PUBACK, a>     { typedef EmptySerializableWithoutFlags<PUBACK>     PayloadType; };
-            template <bool a> struct PayloadSelector<PUBREL, a>     { typedef EmptySerializableWithoutFlags<PUBREL>     PayloadType; };
-            template <bool a> struct PayloadSelector<PUBREC, a>     { typedef EmptySerializableWithoutFlags<PUBREC>     PayloadType; };
-            template <bool a> struct PayloadSelector<PUBCOMP, a>    { typedef EmptySerializableWithoutFlags<PUBCOMP>    PayloadType; };
-            template <bool a> struct PayloadSelector<DISCONNECT, a> { typedef EmptySerializableWithoutFlags<DISCONNECT> PayloadType; };
-            template <bool a> struct PayloadSelector<AUTH, a>       { typedef EmptySerializableWithoutFlags<AUTH>       PayloadType; };
+            template <bool a> struct PayloadSelector<CONNACK, a>    { typedef SerializablePayload PayloadType; };
+            template <bool a> struct PayloadSelector<PUBACK, a>     { typedef SerializablePayload PayloadType; };
+            template <bool a> struct PayloadSelector<PUBREL, a>     { typedef SerializablePayload PayloadType; };
+            template <bool a> struct PayloadSelector<PUBREC, a>     { typedef SerializablePayload PayloadType; };
+            template <bool a> struct PayloadSelector<PUBCOMP, a>    { typedef SerializablePayload PayloadType; };
+            template <bool a> struct PayloadSelector<DISCONNECT, a> { typedef SerializablePayload PayloadType; };
+            template <bool a> struct PayloadSelector<AUTH, a>       { typedef SerializablePayload PayloadType; };
 
 
             /** Generic variable header with heap allocated properties with or without an identifier */
