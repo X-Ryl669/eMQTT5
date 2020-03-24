@@ -21,7 +21,7 @@ For many reasons:
 | [Espressif esp-mqtt](https://github.com/espressif/esp-mqtt)|3.1|Apache 2.0|12kB (115kb + ?)| No (ESP32)|
 | [wolfMQTT](https://github.com/wolfSSL/wolfMQTT)|5.0|GPL 2.0|not tested due to license|Yes (Posix+Win32+Arduino)|
 | [mosquitto](https://github.com/eclipse/mosquitto/)|5.0|EPL|large | Yes requires Posix|
-| eMQTT5|5.0|MIT|24kB (not dep)|Yes (Posix+Win32+Lwip(for ex: ESP32))|
+| eMQTT5|5.0|MIT|24kB (no dep)|Yes (Posix+Win32+Lwip(for ex: ESP32))|
 
 ## API Documentation
 There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/APIDoc.md). 
@@ -45,5 +45,5 @@ BSD socket API is used with only minimum feature set (only `recv`, `send`, `geta
 The only options used for socket (optional, can be disabled) are: `TCP_NODELAY`, `fcntl/O_NONBLOCK`, `SO_SNDTIMEO`, `SO_RCVTIMEO`)
 
 Please check the [MQTTClient.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master/lib/src/Network/Clients/MQTTClient.cpp) file for two different examples of platform support (from complete, deterministic, Posix based implementation to simplest embedded system)
-
+There is also a port for ESP32 [here](https://github.com/X-Ryl669/esp-eMQTT5).
 
