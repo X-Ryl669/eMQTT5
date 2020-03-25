@@ -2,6 +2,8 @@
 An embedded MQTTv5 client in C++ with minimal footprint, maximal performance.
 
 This repository contains a complete MQTT v5.0 client that's optimized for code size without sacrifying performance.
+This is, to my knowledge, the smallest (and complete!) MQTT v5.0 client for embedded system with a binary size down to 19kB on ESP32. 
+MQTT v5.0 is a more complex protocol than MQTT v3.1.1, with the addition of properties in each packet and Authentication subsystem. 
 
 ## Why another MQTT client ?
 For many reasons:
@@ -26,7 +28,7 @@ For many reasons:
 ## API Documentation
 There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/APIDoc.md). 
 
-The higher level API is documented in the `include/Network/Client/MQTT.hpp` file where you only need to call methods of the `Network::Client::MQTTv5` class (all serialization is done for you).
+The higher level API which is documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/ClientAPI.md) is available when you only need to call methods of the `Network::Client::MQTTv5` class (all serialization is done for you).
 
 In all cases, almost all methods avoid allocating memory on the heap (stack is prefered whenever possible).
 There is only few places where heap allocations are performed and they are documented in there respective documentation.
@@ -44,6 +46,7 @@ BSD socket API is used with only minimum feature set (only `recv`, `send`, `geta
 
 The only options used for socket (optional, can be disabled) are: `TCP_NODELAY`, `fcntl/O_NONBLOCK`, `SO_SNDTIMEO`, `SO_RCVTIMEO`)
 
-Please check the [MQTTClient.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master/lib/src/Network/Clients/MQTTClient.cpp) file for two different examples of platform support (from complete, deterministic, Posix based implementation to simplest embedded system)
+Please check the [MQTTClient.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master/lib/src/Network/Clients/MQTTClient.cpp) file for two different examples of platform support (from complete, deterministic, Posix based implementation to simplest embedded system).
+
 There is also a port for ESP32 [here](https://github.com/X-Ryl669/esp-eMQTT5).
 
