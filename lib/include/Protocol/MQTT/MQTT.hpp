@@ -254,8 +254,8 @@ namespace Protocol
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
                     if (bufLength < 2) return NotEnoughData;
-                    uint16 size = 0; memcpy(&size, buffer, 2); length = ntohs(size);
-                    if (length+2 > bufLength) return NotEnoughData;
+                    uint16 size = 0; memcpy(&size, buffer, 2); length = BigEndian(size);
+                    if ((uint32)(length+2) > bufLength) return NotEnoughData;
                     data = (char*)Platform::safeRealloc(data, length);
                     memcpy(data, buffer+2, length);
                     return (uint32)length+2;
@@ -367,7 +367,7 @@ namespace Protocol
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
-                uint32 copyInto(uint8 * buffer) const { uint16 size = htons(length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, length); return (uint32)length + 2; }
+                uint32 copyInto(uint8 * buffer) const { uint16 size = BigEndian(length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, length); return (uint32)length + 2; }
                 /** Read the value from a buffer.
                     @param buffer       A pointer to an allocated buffer that's at least 4 bytes long
                     @param bufLength    The length of the buffer in bytes
@@ -375,8 +375,8 @@ namespace Protocol
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
                     if (bufLength < 2) return NotEnoughData;
-                    uint16 size = 0; memcpy(&size, buffer, 2); length = ntohs(size);
-                    if (length+2 > bufLength) return NotEnoughData;
+                    uint16 size = 0; memcpy(&size, buffer, 2); length = BigEndian(size);
+                    if ((uint32)(length+2) > bufLength) return NotEnoughData;
                     data = (uint8*)Platform::safeRealloc(data, length);
                     memcpy(data, buffer+2, length);
                     return (uint32)length + 2;
@@ -419,7 +419,7 @@ namespace Protocol
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
-                uint32 copyInto(uint8 * buffer) const { uint16 size = htons(length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, length); return (uint32)length + 2; }
+                uint32 copyInto(uint8 * buffer) const { uint16 size = BigEndian(length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, length); return (uint32)length + 2; }
                 /** Read the value from a buffer.
                     @param buffer       A pointer to an allocated buffer that's at least 4 bytes long
                     @param bufLength    The length of the buffer in bytes
@@ -429,8 +429,8 @@ namespace Protocol
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {   
                     if (bufLength < 2) return NotEnoughData;
-                    uint16 size = 0; memcpy(&size, buffer, 2); length = ntohs(size);
-                    if (length+2 > bufLength) return NotEnoughData;
+                    uint16 size = 0; memcpy(&size, buffer, 2); length = BigEndian(size);
+                    if ((uint32)(length+2) > bufLength) return NotEnoughData;
                     data = (const char*)&buffer[2];
                     return (uint32)length + 2;
                 }
@@ -531,7 +531,7 @@ namespace Protocol
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
-                uint32 copyInto(uint8 * buffer) const { uint16 size = htons(length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, length); return (uint32)length + 2; }
+                uint32 copyInto(uint8 * buffer) const { uint16 size = BigEndian(length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, length); return (uint32)length + 2; }
                 /** Read the value from a buffer.
                     @param buffer       A pointer to an allocated buffer that's at least 4 bytes long
                     @param bufLength    The length of the buffer in bytes
@@ -541,8 +541,8 @@ namespace Protocol
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {   
                     if (bufLength < 2) return NotEnoughData;
-                    uint16 size = 0; memcpy(&size, buffer, 2); length = ntohs(size);
-                    if (length+2 > bufLength) return NotEnoughData;
+                    uint16 size = 0; memcpy(&size, buffer, 2); length = BigEndian(size);
+                    if ((uint32)(length+2) > bufLength) return NotEnoughData;
                     data = &buffer[2];
                     return (uint32)length + 2;
                 }
@@ -652,7 +652,7 @@ namespace Protocol
                 {
                     for (size = 0; size < 4;)
                     {
-                        if (size+1 > bufLength) return NotEnoughData;
+                        if ((uint32)(size+1) > bufLength) return NotEnoughData;
                         value[size] = buffer[size];
                         if (value[size++] < 0x80) break;
                     }
@@ -992,7 +992,7 @@ namespace Protocol
 
                 // Not using variadic template here since this can be built without C++11
                 template <typename T, typename U> 
-                struct MaxSize { enum { Size = sizeof(T) > U::Size ? sizeof(T) : U::Size }; };
+                struct MaxSize { enum { Size = sizeof(T) > (size_t)U::Size ? sizeof(T) : (size_t)U::Size }; };
 
                 struct MaxVisitorsSize
                 {
@@ -1129,13 +1129,13 @@ namespace Protocol
                     if (MemMappedVisitor * v = getBase()) return v->acceptBuffer(buf, bufLength);
                     return BadData;
                 }
-
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 {
                     if (MemMappedVisitor * v = getBase()) v->dump(out, indent);
                 }
 #endif
+
 
 
                 template <typename T>
@@ -1272,14 +1272,18 @@ namespace Protocol
             {
                 /** While we should support a variable length property type, there is no property type allowed above 127 for now, so let's resume to a single uint8 */
                 const uint8 type;
+                /** The next property in the list */
+                PropertyBase * next;
                 /** Whether we need to delete the object (default to false) */
                 bool heapAllocated; 
+
+                
                 /** The property type */
-                PropertyBase(const PropertyType type, const bool heap = false) : type((uint8)type), heapAllocated(heap) {}
+                PropertyBase(const PropertyType type, const bool heap = false) : type((uint8)type), next(0), heapAllocated(heap) {}
                 /** Clone the property */
                 virtual PropertyBase * clone() const = 0;
-                /** Suicide */
-                virtual void suicide() { if (heapAllocated) delete this; }
+                /** Suicide (walking the list is done in Properties::suicide) */
+                void suicide() { if (heapAllocated) delete this; }
                 /** Virtual destructor is required since we destruct virtually the chained list */
                 virtual ~PropertyBase() {}
             };
@@ -1671,7 +1675,7 @@ namespace Protocol
             struct TypedProperty
             {
                 enum { Type = type };
-                static PropertyBase * allocateProp() { return new Property<T>(type, T()) ; }
+                static PropertyBase * allocateProp() { return new Property<T>(type, T(), true) ; }
                 TypedProperty(const T & value) : Property<T>(type, value) {}
             };
 
@@ -1749,27 +1753,6 @@ namespace Protocol
                 }
             }
 
-
-            /** Property list */
-            struct PropertyListNode
-            {
-                PropertyBase * property;
-                PropertyListNode * next;
-                
-                /** Append a new property to this list */
-                void append(PropertyBase * prop) { PropertyListNode * u = this; while(u->next) u = u->next; u->next = new PropertyListNode(prop); }
-                /** Count the number of element in this list */
-                uint32 count() const { const PropertyListNode * u = this; uint32 c = 1; while(u->next) { u = u->next; c++; } return c; }
-#if MQTTAvoidValidation != 1
-                /** Check all properties in this list are valid */
-                bool check() const { const PropertyListNode * u = this; while (u->next) { if (!u->property->check()) return false; u = u->next; } return true; }
-#endif
-                /** Clone a single node here (not the complete list) */
-                PropertyListNode * clone() const { return new PropertyListNode(property->clone()); }
-                
-                PropertyListNode(PropertyBase * property) : property(property), next(0) {}
-                ~PropertyListNode() { delete0(next); property->suicide(); property = 0; }
-            };
             
             /** The allowed properties for each control packet type.
                 This is used externally to allow generic code to be written */
@@ -1826,24 +1809,49 @@ namespace Protocol
 #endif
             };
 
-            /** The property structure (section 2.2.2) */
+            /** The property structure (section 2.2.2).
+                This object is trying to avoid memory allocation to limit its impact.
+                Such feature is implemented by a "reference mechanism". 
+                Whenever an instance is build by "copying" or "capture", a reference to the original object 
+                is captured and no copy is really made. If you need a copy, use the clone method.
+
+                The reference is done with specific double-head tracking for it.
+                When a reference is taken, both head and reference are set to the reference source.
+                If modifications are done on this instance, only the head is modified.
+                When destructed, destruction happens until the reference */
             struct Properties Final : public SerializableProperties
             {
                 /** The properties length (can be 0) (this only counts the following members) */
                 VBInt length;
                 /** The properties set */
-                PropertyListNode * head;
+                PropertyBase * head;
+                /** Whether it's just a reference to another property (so skip destruction of the chained list) */
+                PropertyBase * reference;
+
+                /** Destroy correctly this instance */
+                void suicide()
+                {
+                    while (head && head != reference) 
+                    { 
+                        PropertyBase * n = head->next; 
+                        head->suicide();
+                        head = n; 
+                    }
+                    reference = 0;
+                }
 
                 /** Get the i-th property */
-                const PropertyBase * getProperty(size_t index) const { const PropertyListNode * u = head; while (u && index--) u = u->next; return u ? u->property : 0; }
+                const PropertyBase * getProperty(size_t index) const { const PropertyBase * u = head; while (u && index--) u = u->next; return !index ? u : 0; }
                 /** Get the i-th property of the given type */
                 const PropertyBase * getProperty(const PropertyType type, size_t index = 0) const
                 {
-                    PropertyListNode * u = head;
+                    PropertyBase * u = head;
                     while (u)
                     {
-                        if (u->property && u->property->type == type)
-                           if (index-- == 0) return u->property;
+                        if (u->type == type)
+                        {
+                           if (index-- == 0) return u;
+                        }
                         u = u->next;
                     }
                     return 0;
@@ -1856,10 +1864,11 @@ namespace Protocol
                 uint32 copyInto(uint8 * buffer) const
                 {
                     uint32 o = length.copyInto(buffer);
-                    PropertyListNode * c = head;
-                    while (c && c->property) { o += c->property->copyInto(buffer + o); c = c->next; }
+                    PropertyBase * c = head;
+                    while (c) { o += c->copyInto(buffer + o); c = c->next; }
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -1868,7 +1877,7 @@ namespace Protocol
                     uint32 o = length.readFrom(buffer, bufLength);
                     if (isError(o)) return o;
                     if ((uint32)length > bufLength - length.getSize()) return NotEnoughData;
-                    delete0(head);
+                    suicide();
                     buffer += o; bufLength -= o;
                     PropertyBase * property = 0;
                     uint32 cumSize = (uint32)length;
@@ -1876,13 +1885,14 @@ namespace Protocol
                     {
                         uint32 s = PropertyRegistry::getInstance().unserialize(buffer, cumSize, property);
                         if (isError(s)) return s;
-                        if (!head) head = new PropertyListNode(property);
-                        else head->append(property);
+                        if (head) property->next = head; 
+                        head = property;
                         buffer += s; cumSize -= s;
                         o += s;
                     }
                     return o;
                 }
+#endif
 #if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return length.check() && head ? head->check() : true; }
@@ -1892,9 +1902,9 @@ namespace Protocol
                 { 
                     out += MQTTStringPrintf("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
                     if (!(uint32)length) return;
-                    PropertyListNode * c = head;
-                    while (c && c->property) {
-                        c->property->dump(out, indent + 2);
+                    PropertyBase * c = head;
+                    while (c) {
+                        c->dump(out, indent + 2);
                         c = c->next;
                     }
                 }
@@ -1904,8 +1914,8 @@ namespace Protocol
                 bool checkPropertiesFor(const ControlPacketType type) const
                 {
                     if (!check()) return false;
-                    PropertyListNode * u = head;
-                    while (u) { if (!isAllowedProperty((PropertyType)u->property->type, type)) return false; u = u->next; }
+                    PropertyBase * u = head;
+                    while (u) { if (!isAllowedProperty((PropertyType)u->type, type)) return false; u = u->next; }
                     return true;
                 }
 #endif
@@ -1914,47 +1924,55 @@ namespace Protocol
                     @return true upon successful append, false upon error (the pointer is not owned in that case) */
                 bool append(PropertyBase * property)
                 {
+                    // This does not update an existing property
+                    if (property->type != UserProperty && getProperty(property->type))
+                        return false;
+
                     VBInt l((uint32)length + property->getSize());
                     if (!l.checkImpl()) return false;
                     length = l;
-                    if (head) head->append(property);
-                    else head = new PropertyListNode(property);
+                    property->next = head;
+                    head = property;
                     return true;
                 }
-                /** Swap the list with another properties list */
-                void swap(Properties & other)
+                /** Capture a given property. This only refers to the given property */
+                void capture(Properties * other)
                 {
-                    PropertyListNode * n = head;
-                    head = other.head;
-                    other.head = n;
-                    uint32 v = (uint32)length;
-                    length = (uint32)other.length;
-                    other.length = v;
+                    if (!other) return;
+                    head = other->head;
+                    length = other->length;
+                    reference = head;
                 }
-                
-                /** Build an empty property list */
-                Properties() : head(0) {}
-                /** Copy construction */
-                Properties(const Properties & other) : length(other.length), head(0)
+
+                /** Make a deep copy. This actually create a version that's heap allocated for each value */
+                Properties * clone()
                 {
-                    const PropertyListNode * n = other.head;
-                    PropertyListNode * & m = head;
+                    Properties * ret = new Properties();
+                    ret->length = length;
+                    const PropertyBase * n = head;
+                    PropertyBase * & m = ret->head;
                     while (n)
                     {
                         m = n->clone();
                         m = m->next;
                         n = n->next;
                     }
+                    return ret;
                 }
+                
+                /** Build an empty property list */
+                Properties() : head(0), reference(0) {}
+                /** Copy construction does not really create a copy, but take a reference on the existing object */
+                Properties(const Properties & other) : length(other.length), head(other.head), reference(other.head) {}
 #if HasCPlusPlus11 == 1
                 /** Move constructor (to be preferred) */
-                Properties(Properties && other) : length(std::move(other.length)), head(std::move(other.head)) {}
+                Properties(Properties && other) : length(std::move(other.length)), head(std::move(other.head)), reference(std::move(other.reference)) {}
 #endif
                 /** Build a property list starting with the given property that's owned.
                     @param firstProperty    A pointer on a new allocated Property that's owned by this list */
                 Properties(PropertyBase * firstProperty) 
-                    : length(firstProperty->getSize()), head(new PropertyListNode(firstProperty)) {}
-                ~Properties() { delete0(head); }
+                    : length(firstProperty->getSize()), head(firstProperty), reference(0) {}
+                ~Properties() { suicide(); }
             };
 
 
@@ -2060,8 +2078,9 @@ namespace Protocol
                 {
                     if (!check()) return false;
                     uint32 o = 0;
-                    PropertyType t = BadProperty; 
-                    while (getProperty(t, o))
+                    PropertyType t = BadProperty;
+                    VisitorVariant v;
+                    while (getProperty(v, t, o))
                     {
                         if (!isAllowedProperty(t, type)) return false;
                     }
@@ -2727,9 +2746,9 @@ namespace Protocol
                 /** That's the will properties to attachs to the will message if required */
                 Properties          willProperties;
                 /** The will topic */
-                DynamicString       willTopic;
+                DynString           willTopic;
                 /** The last will application message payload */
-                DynamicBinaryData   willPayload;
+                DynBinData          willPayload;
 
                 /** We have a getSize() method that gives the number of bytes requires to serialize this object */
                 virtual uint32 getSize() const { return willProperties.getSize() + willTopic.getSize() + willPayload.getSize(); }
@@ -2769,10 +2788,10 @@ namespace Protocol
                 bool check() const
                 {
                     if (!willProperties.check()) return false;
-                    PropertyListNode * u = willProperties.head;
+                    PropertyBase * u = willProperties.head;
                     while (u)
                     {   // Will properties are noted as if their control packet type was 0 (since it's reserved, let's use it)
-                        if (!isAllowedProperty((PropertyType)u->property->type, (ControlPacketType)0)) return false;
+                        if (!isAllowedProperty((PropertyType)u->type, (ControlPacketType)0)) return false;
                         u = u->next;
                     }
                     return willTopic.check() && willPayload.check();
@@ -2788,11 +2807,12 @@ namespace Protocol
                 WillMessage() {}
 #if HasCPlusPlus11 == 1
                 /** Construction for this message */
-                WillMessage(DynamicString && topic, DynamicBinaryData && payload, Properties && properties) :
+                WillMessage(DynString && topic, DynBinData && payload, Properties && properties) :
                     willProperties(properties), willTopic(topic), willPayload(payload) {}
 #endif
+
                 /** Copy construction */
-                WillMessage(const DynamicString & topic, const DynamicBinaryData & payload, const Properties & properties = Properties()) :
+                WillMessage(const DynString & topic, const DynBinData & payload, const Properties & properties = Properties()) :
                     willProperties(properties), willTopic(topic), willPayload(payload) {}
             };
 

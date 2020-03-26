@@ -739,17 +739,12 @@ namespace Network { namespace Client {
         ScopedLock scope(impl->lock);
         if (impl->isOpen()) return ErrorType::AlreadyConnected;
 
-        if (properties)
-        {   // Capture properties (to avoid copying them)
-            packet.props.swap(*properties);
-        }
+        // Capture properties (to avoid copying them)
+        packet.props.capture(properties);
 
         // Check if we have a max packet size property and if not, append one to let the server know our limitation (if any)
         if (impl->recvBufferSize < Protocol::MQTT::Common::VBInt::MaxPossibleSize)
-        {
-            if (!packet.props.getProperty(Protocol::MQTT::V5::PacketSizeMax))
-                packet.props.append(&maxProp); // That's possible with a stack property as long as the lifetime of the object outlive the packet
-        }
+            packet.props.append(&maxProp); // It'll fail silently if it already exists
 
 #if MQTTAvoidValidation != 1
         if (!packet.props.checkPropertiesFor(Protocol::MQTT::V5::CONNECT))
@@ -920,16 +915,12 @@ namespace Network { namespace Client {
         if (impl->getLastPacketType() != Protocol::MQTT::V5::RESERVED)
             return ErrorType::TranscientPacket;
 
-        if (properties)
-        {   // Capture properties (to avoid copying them)
-            packet.props.swap(*properties);
-        }
+        // Capture properties (to avoid copying them)
+        packet.props.capture(properties);
 
         // Check if we have a auth method
-        if (!packet.props.getProperty(Protocol::MQTT::V5::AuthenticationMethod))
-            packet.props.append(&method); // That's possible with a stack property as long as the lifetime of the object outlive the packet
-        if (!packet.props.getProperty(Protocol::MQTT::V5::AuthenticationData))
-            packet.props.append(&data); // That's possible with a stack property as long as the lifetime of the object outlive the packet
+        packet.props.append(&method); // That'll fail silently if it already exists
+        packet.props.append(&data); // That'll fail silently if it already exists
         
         packet.fixedVariableHeader.reasonCode = reasonCode;
 
@@ -994,10 +985,8 @@ namespace Network { namespace Client {
             return ErrorType::TranscientPacket;
 
         Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::SUBSCRIBE> packet;
-        if (properties)
-        {   // Capture properties (to avoid copying them)
-            packet.props.swap(*properties);
-        }
+        // Capture properties (to avoid copying them)
+        packet.props.capture(properties);
 
 #if MQTTAvoidValidation != 1
         if (!packet.props.checkPropertiesFor(Protocol::MQTT::V5::SUBSCRIBE))
@@ -1118,10 +1107,8 @@ namespace Network { namespace Client {
             return ErrorType::TranscientPacket;
 
         Protocol::MQTT::V5::PublishPacket packet;
-        if (properties)
-        {   // Capture properties (to avoid copying them)
-            packet.props.swap(*properties);
-        }
+        // Capture properties (to avoid copying them)
+        packet.props.capture(properties);
 
 #if MQTTAvoidValidation != 1
         if (!packet.props.checkPropertiesFor(Protocol::MQTT::V5::PUBLISH))
@@ -1139,93 +1126,6 @@ namespace Network { namespace Client {
         packet.payload.readFrom(payload, payloadLength);
 
         return enterPublishCycle(packet, true);
-#if 0        
-        if (ErrorType ret = prepareSAR(packet, withAnswer))
-            return ret;
-
-        if (!withAnswer)
-            return ErrorType::Success;
-
-#if MQTTSupportQoSLevel > 0
-        // Now deal with QoS specificities
-        switch (QoS)
-        {
-        case QoSDelivery::AtLeastOne:
-        {
-            // Here, we are waiting for a PUBACK packet
-            Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
-            if (type == Protocol::MQTT::V5::PUBACK)
-            {
-                Protocol::MQTT::V5::ROPubACKPacket rpacket;
-                int ret = impl->extractControlPacket(type, rpacket);
-                if (ret > 0)
-                {
-                    if (rpacket.fixedVariableHeader.packetID != packet.fixedVariableHeader.packetID)
-                        // Not the packet we were expecting
-                        return ErrorType::TranscientPacket;
-                    // Ok, let's report to the client the result of this publish
-                    return (ReasonCodes)rpacket.fixedVariableHeader.reasonCode;
-                }
-                else return ErrorType::NetworkError;
-            }
-            // If we get something else, it's unfortunate but possible if the client hasn't polled the socket fast enough
-            // (might be a lingering PINGRESP or PUBLISH), let's report an error to the client, she'll have to clean that herself.
-            return ErrorType::TranscientPacket;        
-        }
-        break;
-  #if MQTTSupportQoSLevel > 1
-        case QoSDelivery::ExactlyOne:
-        {
-            // Here, we are waiting for a PUBREC packet
-            Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
-            if (type == Protocol::MQTT::V5::PUBREC)
-            {
-                Protocol::MQTT::V5::ROPubRecPacket rpacket;
-                int ret = impl->extractControlPacket(type, rpacket);
-                if (ret > 0)
-                {
-                    // Ok, let's report to the client the result of this publish
-                    if (rpacket.fixedVariableHeader.reasonCode)
-                        return (ReasonCodes)rpacket.fixedVariableHeader.reasonCode;
-
-                    // Need to send a PUBREL packet here to finish handshake
-                    Protocol::MQTT::V5::PubRelPacket fpacket;
-                    fpacket.fixedVariableHeader.packetID = rpacket.fixedVariableHeader.packetID;
-                    if (rpacket.fixedVariableHeader.packetID != packet.fixedVariableHeader.packetID)
-                    {
-                        // Need to inform the server about the bad packet identifier [MQTT-3.6.2-1]
-                        fpacket.fixedVariableHeader.reasonCode = ReasonCodes::PacketIdentifierNotFound;
-                        prepareSAR(fpacket, false);
-                        // Not the packet we were expecting
-                        return ErrorType::TranscientPacket;
-                    }
-
-                    // Send PUBREL and wait for PUBCOMP
-                    if (ErrorType err = prepareSAR(fpacket))
-                        return err;
-                    
-                    // Make sure we got PUBCOMP now
-                    Protocol::MQTT::V5::ROPubCompPacket cpacket;
-                    ret = impl->extractControlPacket(Protocol::MQTT::V5::PUBCOMP, cpacket);
-                    if (ret < 0) return ret == -2 ? ErrorType::TimedOut : ErrorType::NetworkError;
-
-                    if (cpacket.fixedVariableHeader.packetID != fpacket.fixedVariableHeader.packetID)
-                        return ErrorType::TranscientPacket;
-                    
-                    return (ReasonCodes)cpacket.fixedVariableHeader.reasonCode;
-                }
-                else return ErrorType::NetworkError;
-            }
-        }
-        break;
-  #endif
-        default: return ErrorType::UnknownError;
-        }
-#endif
-
-        
-        return MQTTv5::ErrorType::UnknownError;
-#endif
     }
 
     // The client event loop you must call regularly.
@@ -1275,67 +1175,6 @@ namespace Network { namespace Client {
             impl->cb->messageReceived(packet.fixedVariableHeader.topicName, DynamicBinDataView(packet.payload.size, packet.payload.data), packet.fixedVariableHeader.packetID, packet.props);
             return enterPublishCycle(packet, false);
         }
-#if 0
-#if MQTTSupportQoSLevel > 1
-        case Protocol::MQTT::V5::PUBREL: 
-        {
-            Protocol::MQTT::V5::ROPubCompPacket packet;
-            int ret = impl->extractControlPacket(type, packet);
-            if (ret == 0) { impl->close(); return ErrorType::NotConnected; }
-            if (ret < 0) return ErrorType::NetworkError;
-
-            // Need to send a PUBCOMP packet here
-            Protocol::MQTT::V5::PubCompPacket rpacket;
-            rpacket.fixedVariableHeader.packetID = packet.fixedVariableHeader.packetID;
-            rpacket.fixedVariableHeader.reasonCode = ReasonCodes::Success;
-            if (ErrorType snd = prepareSAR(rpacket, false))
-                return snd;
-            break;
-        }
- #endif
-        case Protocol::MQTT::V5::PUBLISH:
-        {
-            Protocol::MQTT::V5::ROPublishPacket packet;
-            int ret = impl->extractControlPacket(type, packet);
-            if (ret == 0) { impl->close(); return ErrorType::NotConnected; }
-            if (ret < 0) return ErrorType::NetworkError;
-
-            // Let's parse the publish packet now
-            switch (packet.header.getQoS())
-            {
-#if MQTTSupportQoSLevel > 1
-                case Protocol::MQTT::V5::ExactlyOne:
-                // Need to send the PUBREC here before telling the client about this packet
-                {
-                    Protocol::MQTT::V5::PubRecPacket rpacket;
-                    rpacket.fixedVariableHeader.packetID = packet.fixedVariableHeader.packetID;
-                    rpacket.fixedVariableHeader.reasonCode = ReasonCodes::Success;
-                    if (ErrorType snd = prepareSAR(rpacket, false))
-                        return snd;
-
-                    //@todo: Remember the packet ID received here to ensure it's coherent with what we've received earlier
-                }
-                break;
-#endif
-#if MQTTSupportQoSLevel > 0
-            case Protocol::MQTT::V5::AtLeastOne:
-                // Need to send the ACK here before telling the client about this packet
-                {
-                    Protocol::MQTT::V5::PubACKPacket rpacket;
-                    rpacket.fixedVariableHeader.packetID = packet.fixedVariableHeader.packetID;
-                    rpacket.fixedVariableHeader.reasonCode = ReasonCodes::Success;
-                    if (ErrorType snd = prepareSAR(rpacket, false))
-                        return snd;
-                }
-                break;
-#endif
-            case Protocol::MQTT::V5::AtMostOne: break;
-            default: { impl->close(); return ErrorType::NotConnected; } // Protocol error here
-            }
-            impl->cb->messageReceived(packet.fixedVariableHeader.topicName, DynamicBinDataView(packet.payload.size, packet.payload.data), packet.fixedVariableHeader.packetID, packet.props);
-            break;
-        }
-#endif
         default: // Ignore all other packets currently 
             break;
         }
@@ -1356,10 +1195,8 @@ namespace Network { namespace Client {
         
         Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::DISCONNECT> packet;
         packet.fixedVariableHeader.reasonCode = code;
-        if (properties)
-        {   // Capture properties (to avoid copying them)
-            packet.props.swap(*properties);
-        }
+        // Capture properties (to avoid copying them)
+        packet.props.capture(properties);
 
 #if MQTTAvoidValidation != 1
         if (!packet.props.checkPropertiesFor(Protocol::MQTT::V5::DISCONNECT))
