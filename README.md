@@ -2,13 +2,13 @@
 An embedded MQTTv5 client in C++ with minimal footprint, maximal performance.
 
 This repository contains a complete MQTT v5.0 client that's optimized for code size without sacrifying performance.
-This is, to my knowledge, the smallest (and complete!) MQTT v5.0 client for embedded system with a binary size down to 19kB on ESP32. 
-MQTT v5.0 is a more complex protocol than MQTT v3.1.1, with the addition of properties in each packet and Authentication subsystem. 
+This is, to my knowledge, the smallest (and complete!) MQTT v5.0 client for embedded system with a binary size down to less than 17kB on ESP32 (and less than 75kB on MacOSX). 
+MQTT v5.0 is a more complex protocol than MQTT v3.1.1, with the addition of properties in each packet and authentication subsystem. 
 
 ## Why another MQTT client ?
 For many reasons:
 
-- Many clients around don't support MQTT v5.0 protocol (only limited to version 3.1)
+- Many clients around don't support MQTT v5.0 protocol (only limited to version 3.1.1)
 - Some are large and/or requires numerous dependencies
 - This code is specialized for embedded system with or without an operating system
 - Many clients don't build on a linux system making debugging hard
@@ -23,7 +23,7 @@ For many reasons:
 | [Espressif esp-mqtt](https://github.com/espressif/esp-mqtt)|3.1|Apache 2.0|12kB (115kb + ?)| No (ESP32)|
 | [wolfMQTT](https://github.com/wolfSSL/wolfMQTT)|5.0|GPL 2.0|not tested due to license|Yes (Posix+Win32+Arduino)|
 | [mosquitto](https://github.com/eclipse/mosquitto/)|5.0|EPL|large | Yes requires Posix|
-| eMQTT5|5.0|MIT|19kB (no dep)|Yes (Posix+Win32+Lwip(for ex: ESP32))|
+| eMQTT5|5.0|MIT|<17kB (no dep)|Yes (Posix+Win32+Lwip(for ex: ESP32))|
 
 ## API Documentation
 There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/APIDoc.md). 
