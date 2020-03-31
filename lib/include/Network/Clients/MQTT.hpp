@@ -22,8 +22,20 @@
 /** Remove all validation from MQTT types.
     This removes validation check for all MQTT types in order to save binary size. 
     This is only recommanded if you are sure about your broker implementation (don't set this to 1 if you 
-    intend to connect on unknown broker) */
+    intend to connect on unknown broker)
+    Default: 0 */
 #define MQTTAvoidValidation 1
+
+/** Enable SSL/TLS code.
+    If your broker is on the public internet, it's a good idea to enable TLS to avoid communication snooping.
+    This adds a large impact to the binary size since the socket code is then duplicated (SSL and non SSL).
+    The SSL socket code provided is using mbedtls, but one could use BearSSL if size is really limited instead.
+
+    Please notice that this has no effect if MQTTOnlyBSDSocket is 0, since ClassPath embeds its own SSL socket 
+    code (abstracted away at a higher level)
+    Default: 1 */
+#define MQTTUseTLS          0
+
 
 /** Simple socket code.
     If set to true, this disables the optimized network code from ClassPath and fallback to the minimal subset 
@@ -253,8 +265,15 @@ namespace Network
 
             // Construction and destruction
         public:
-            /** Default constructor */
-            MQTTv5(const char * clientID, MessageReceived * callback);
+            /** Default constructor 
+                @param clientID     A client identifier if you need to provide one. If empty or null, the broker will assign one
+                @param callback     A pointer to a MessageReceived callback object. The method might be called from any thread/task
+                @param brokerCert   If provided, contains a view on the DER encoded broker's certificate to validate against.
+                                    If provided and empty, any certificate will be accepted (not recommanded).
+                                    No copy is made so please make sure the pointed data is valid while this client is valid. 
+                                    If you have a PEM encoded certificate, use this code to convert it to (33% smaller) DER format 
+                                    $ openssl x509 -in cert.pem -outform der -out cert.der */
+            MQTTv5(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert = 0);
             /** Default destructor */
             ~MQTTv5();
             

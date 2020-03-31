@@ -18,6 +18,16 @@
 #include <netinet/tcp.h>
 // We need std::atomic too
 #include <atomic>
+  #if MQTTUseTLS == 1
+    // We need MBedTLS code
+    #include <mbedtls/certs.h>
+    #include <mbedtls/ctr_drbg.h>
+    #include <mbedtls/entropy.h>
+    #include <mbedtls/error.h>
+    #include <mbedtls/net_sockets.h>
+    #include <mbedtls/platform.h>
+    #include <mbedtls/ssl.h>
+  #endif
 #endif
 // We need StackHeapBuffer to avoid stressing the heap allocator when it's not required
 #include "../../../include/Platform/StackHeapBuffer.hpp"
@@ -52,17 +62,19 @@ namespace Network { namespace Client {
     struct MQTTv5::Impl
     {
         /** The multithread protection for this object */
-        Threading::Lock     lock;
+        Threading::Lock         lock;
         /** This client socket */
-        Socket *            socket;
+        Socket *                socket;
+        /** The DER encoded certificate (if provided) */
+        DynamicBinDataView  *   brokerCert;
         /** The SSL context (if any used) */
-        SSLContext *        sslContext;
+        SSLContext *            sslContext;
         /** This client unique identifier */
-        DynamicString       clientID; 
+        DynamicString           clientID; 
         /** The message received callback to use */
-        MessageReceived *   cb;
+        MessageReceived *       cb;
         /** The default timeout in milliseconds */
-        uint32              timeoutMs;
+        uint32                  timeoutMs;
 
         /** The last communication time in second */
         uint32              lastCommunication;
@@ -97,8 +109,8 @@ namespace Network { namespace Client {
             return ++publishCurrentId;
         }
 
-        Impl(const char * clientID, MessageReceived * callback)
-             : socket(0), sslContext(0), clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+        Impl(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert)
+             : socket(0), brokerCert(brokerCert), sslContext(0), clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
         ~Impl() { delete socket; socket = 0; ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
@@ -123,16 +135,6 @@ namespace Network { namespace Client {
             Logger::log(Logger::Dump, "> Sending packet: %s(R:%d,Q:%d,D:%d)%s", Protocol::MQTT::V5::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup, (const char*)packetDump);
 #endif
             return socket->sendReliably(buffer, (int)length, timeoutMs);
-        }
-
-        int receive(char * buffer, const uint32 minLength, const uint32 maxLength, const Time::TimeOut & timeout)
-        {
-            if (!socket) return -1;
-            int ret = socket->receiveReliably(buffer, minLength, timeout);
-            if (ret <= 0) return ret;
-            // The socket is non blocking, thus the following will only return what's available at the calling time
-            int nret = socket->receive(&buffer[ret], maxLength - ret, 0);
-            return nret <= 0 ? nret : nret + ret;
         }
 
         bool hasValidLength() const
@@ -293,10 +295,20 @@ namespace Network { namespace Client {
             if (isOpen()) return -1;
             if (withTLS)
             {
-                if (!sslContext) sslContext = new SSLContext();
+                if (!sslContext) 
+                {   // If one certificate is given let's use it instead of the default CA bundle
+                    sslContext = brokerCert ? new SSLContext(NULL, Crypto::SSLContext::Any) : new SSLContext();
+                }
                 if (!sslContext) return -2;
                 // Insert here any session specific configuration or certificate validator
-
+                if (brokerCert)
+                {
+                    if (const char * error = sslContext->loadCertificateFromDER(brokerCert->data, brokerCert->length))
+                    {
+                        Logger::log(Logger::Error, "Could not load the given certificate: %s", error);
+                        return -2;
+                    }
+                }
                 socket = new Network::Socket::SSL_TLS(*sslContext, Network::Socket::BaseSocket::Stream);
             } else socket = new Socket(Network::Socket::BaseSocket::Stream);
             
@@ -316,6 +328,7 @@ namespace Network { namespace Client {
         }
     };
 #else
+#ifndef MQTTLock
     /* If you have a true lock object in your system (for example, in FreeRTOS, use a mutex), 
        you should provide one instead of this one as this one just burns CPU while waiting */
     class SpinLock
@@ -350,7 +363,10 @@ namespace Network { namespace Client {
         ScopedLock(Lock & a) : a(a) { a.acquire(); }
         ~ScopedLock() { a.release(); }
     };
-
+#else
+    #define Lock        MQTTLock
+    #define ScopedLock  MQTTScopedLock
+#endif
 #ifndef closesocket
     #define closesocket close
 #endif
@@ -376,18 +392,249 @@ namespace Network { namespace Client {
     }
 #endif
 
+#if MQTTUseTLS == 1
+    // Small optimization to remove useless virtual table in the final binary if not used 
+    #define MQTTVirtual virtual
+#else
+    #define MQTTVirtual
+#endif 
+
+    struct BaseSocket
+    {
+        int     socket;
+        struct timeval &         timeoutMs;
+
+        MQTTVirtual int connect(const char * host, uint16 port, MQTTv5::DynamicBinDataView *)
+        {
+            socket = ::socket(AF_INET, SOCK_STREAM, 0);
+            if (socket == -1) return -2;
+
+            // Please notice that under linux, it's not required to set the socket
+            // as non blocking if you define SO_SNDTIMEO, for connect timeout.
+            // so the code below could be optimized away. Yet, lwIP does show the 
+            // same behavior so when a timeout for connection is actually required
+            // you must issue a select call here.
+
+            // Set non blocking here
+            int socketFlags = ::fcntl(socket, F_GETFL, 0);
+            if (socketFlags == -1) return -3;
+            if (::fcntl(socket, F_SETFL, (socketFlags | O_NONBLOCK)) != 0) return -3;
+
+            // Let the socket be without Nagle's algorithm
+            int flag = 1;
+            if (::setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) < 0) return -4;
+            // Then connect the socket to the server
+            struct addrinfo hints = {};
+            hints.ai_family = AF_INET; // IPv4 only for now
+            hints.ai_flags = AI_ADDRCONFIG;
+            hints.ai_socktype = SOCK_STREAM;
+
+            // Resolve address
+            struct addrinfo *result = NULL;
+            if (getaddrinfo(host, NULL, &hints, &result) < 0 || result == NULL) return -6;
+
+            // Then connect to it
+            struct sockaddr_in address;
+            address.sin_port = htons(port);
+            address.sin_family = AF_INET;
+            address.sin_addr = ((struct sockaddr_in *)(result->ai_addr))->sin_addr;
+
+            // free result
+            freeaddrinfo(result);
+            int ret = ::connect(socket, (const sockaddr*)&address, sizeof(address));
+            if (ret < 0 && errno != EINPROGRESS) return -6;
+            if (ret == 0) return 0;
+
+            // Here, we need to wait until connection happens or times out
+            if (select(false, true)) 
+            {
+                // Restore blocking behavior here
+                if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
+                // And set timeouts for both recv and send
+                if (::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
+                if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -5;
+                // Ok, done!
+                return 0;
+            }
+
+            return -7;
+        }
+        MQTTVirtual int recv(char * buffer, const uint32 minLength, const uint32 maxLength = 0)
+        {
+            int ret = ::recv(socket, buffer, minLength, MSG_WAITALL);
+            if (ret <= 0) return ret;
+            if (maxLength <= minLength) return ret;
+
+            int nret = ::recv(socket, &buffer[ret], maxLength - ret, 0);
+            return nret <= 0 ? nret : nret + ret;
+        }
+
+        MQTTVirtual int send(const char * buffer, const uint32 length)
+        {
+#if MQTTDumpCommunication == 1
+            dumpBufferAsPacket("> Sending packet", (const uint8*)buffer, length);
+#endif
+            return ::send(socket, buffer, (int)length, 0);
+        }
+
+        // Useful socket helpers functions here
+        MQTTVirtual int select(bool reading, bool writing)
+        {
+#if (_LINUX == 1)
+            // Linux modifies the timeout when calling select
+            struct timeval v = timeoutMs;
+#else
+            // Other system don't
+            struct timeval & v = timeoutMs;
+#endif
+            fd_set set;
+            FD_ZERO(&set);
+            FD_SET(socket, &set);
+            // Then select
+            return ::select(socket + 1, reading ? &set : NULL, writing ? &set : NULL, NULL, &v);
+        }
+
+        BaseSocket(struct timeval & timeoutMs) : socket(-1), timeoutMs(timeoutMs) {}
+        MQTTVirtual ~BaseSocket() { ::closesocket(socket); socket = -1; }
+    };
+
+
+#if MQTTUseTLS == 1
+    class MBTLSSocket : public BaseSocket
+    {
+        mbedtls_entropy_context entropy;
+        mbedtls_ctr_drbg_context entropySource;
+        mbedtls_ssl_context ssl;
+        mbedtls_ssl_config conf;
+        mbedtls_x509_crt cacert;
+        mbedtls_net_context net;
+ 
+    private:
+        bool buildConf(MQTTv5::DynamicBinDataView * brokerCert)
+        {
+            if (brokerCert)
+            {   // Use given root certificate (if you have a recent version of mbedtls, you could use mbedtls_x509_crt_parse_der_nocopy instead to skip a useless copy here)
+                if (::mbedtls_x509_crt_parse_der(&cacert, brokerCert->data, brokerCert->length))
+                    return false;
+            }
+
+            // Now create configuration from default
+            if (::mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT))
+                return false;
+
+            ::mbedtls_ssl_conf_ca_chain(&conf, &cacert, NULL);
+            ::mbedtls_ssl_conf_authmode(&conf, brokerCert ? MBEDTLS_SSL_VERIFY_REQUIRED : MBEDTLS_SSL_VERIFY_NONE);
+
+            // Random number generator
+            ::mbedtls_ssl_conf_rng(&conf, ::mbedtls_ctr_drbg_random, &entropySource);
+            if (::mbedtls_ctr_drbg_seed(&entropySource, ::mbedtls_entropy_func, &entropy, NULL, 0)) 
+                return false;
+
+            if (::mbedtls_ssl_setup(&ssl, &conf))
+                return false;
+
+            return true;
+        }
+
+    public:
+        MBTLSSocket(struct timeval & timeoutMs) : BaseSocket(timeoutMs)
+        {
+            mbedtls_ssl_init(&ssl);
+            mbedtls_ssl_config_init(&conf);
+            mbedtls_x509_crt_init(&cacert);
+            mbedtls_ctr_drbg_init(&entropySource);
+            mbedtls_entropy_init(&entropy);
+        }
+
+        int connect(const char * host, uint16 port, MQTTv5::DynamicBinDataView * brokerCert)
+        {
+            int ret = BaseSocket::connect(host, port, 0);
+            if (ret) return ret;
+            net.fd = socket;
+
+            if (!buildConf(brokerCert))                                             return -8;
+            if (::mbedtls_ssl_set_hostname(&ssl, host))                             return -9;
+
+            // Set the method the SSL engine is using to fetch/send data to the other side
+            ::mbedtls_ssl_set_bio(&ssl, &net, ::mbedtls_net_send, ::mbedtls_net_recv, NULL);
+
+            ret = ::mbedtls_ssl_handshake(&ssl);
+            if (ret != 0 && ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) 
+                return -10;
+                    
+            // Check certificate if one provided
+            if (brokerCert) 
+            {
+                uint32_t flags = mbedtls_ssl_get_verify_result(&ssl);
+                if (flags != 0)
+                { 
+#if MQTTDumpCommunication == 1
+                    char verify_buf[100] = {0};
+                    mbedtls_x509_crt_verify_info(verify_buf, sizeof(verify_buf), "  ! ", flags);
+                    printf("mbedtls_ssl_get_verify_result: %s flag: 0x%x\n", verify_buf, flags);
+#endif
+                    return -11;
+                }
+            }
+            return 0;
+        }
+
+        int send(const char * buffer, const uint32 length)
+        {
+#if MQTTDumpCommunication == 1
+            dumpBufferAsPacket("> Sending packet", (const uint8*)buffer, length);
+#endif
+            return ::mbedtls_ssl_write(&ssl, (const uint8*)buffer, length);
+        }
+
+        int recv(char * buffer, const uint32 minLength, const uint32 maxLength = 0)
+        {
+            uint32 ret = 0;
+            while (ret < minLength)
+            {
+                int r = ::mbedtls_ssl_read(&ssl, (uint8*)&buffer[ret], minLength - ret);
+                if (r <= 0) 
+                {
+                    // Those means that we need to call again the read method
+                    if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE)
+                        continue;
+                    return ret ? (int)ret : r; // Silent error here
+                }
+                ret += (uint32)r;
+            }
+            if (maxLength <= minLength) return ret;
+
+            // This one is a non blocking call
+            int nret = ::mbedtls_ssl_read(&ssl, (uint8*)&buffer[ret], maxLength - ret);
+            return nret <= 0 ? nret : nret + ret;
+        }
+
+        ~MBTLSSocket()
+        {
+            mbedtls_ssl_close_notify(&ssl);
+            mbedtls_x509_crt_free(&cacert);
+            mbedtls_entropy_free(&entropy);
+            mbedtls_ssl_config_free(&conf);
+            mbedtls_ctr_drbg_free(&entropySource);
+            mbedtls_ssl_free(&ssl);
+        }
+    };
+#endif
+
     struct MQTTv5::Impl
     {
         /** The multithread protection for this object */
-        Lock                lock;
+        Lock                    lock;
         /** This client socket */
-        int                 socket;
+        BaseSocket *            socket;
+        /** The DER encoded certificate (if provided) */
+        DynamicBinDataView *    brokerCert;
         /** This client unique identifier */
-        DynamicString       clientID; 
+        DynamicString           clientID; 
         /** The message received callback to use */
-        MessageReceived *   cb;
+        MessageReceived *       cb;
         /** The default timeout in milliseconds */
-        struct timeval      timeoutMs;
+        struct timeval          timeoutMs;
 
         /** The last communication time in second */
         uint32              lastCommunication;
@@ -422,11 +669,11 @@ namespace Network { namespace Client {
             return ++publishCurrentId;
         }
 
-        Impl(const char * clientID, MessageReceived * callback)
-             : socket(-1), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+        Impl(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert)
+             : socket(0), brokerCert(brokerCert), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
-        ~Impl() { ::closesocket(socket); socket = -1; ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
+        ~Impl() { delete0(socket); ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
 
         inline void setTimeout(uint32 timeout)
         {
@@ -438,49 +685,6 @@ namespace Network { namespace Client {
         {
             return (((uint32)time(NULL) - lastCommunication) >= keepAlive);
         }
-
-        // Useful socket helpers functions here
-        int select(bool reading, bool writing)
-        {
-#if (_LINUX == 1)
-            // Linux modifies the timeout when calling select
-            struct timeval v = timeoutMs;
-#else
-            // Other system don't
-            struct timeval & v = timeoutMs;
-#endif
-            fd_set set;
-            FD_ZERO(&set);
-            FD_SET(socket, &set);
-            // Then select
-            return ::select(socket + 1, reading ? &set : NULL, writing ? &set : NULL, NULL, &v);
-        }
-
-
-
-        int send(const char * buffer, const uint32 length)
-        {
-            if (!socket) return -1;
-#if MQTTDumpCommunication == 1
-            dumpBufferAsPacket("> Sending packet", (const uint8*)buffer, length);
-#endif
-
-            return ::send(socket, buffer, (int)length, 0);
-        }
-
-        // Ensure we receive the requested minimal length, and if possible, up to the given maximal length
-        int recv(char * buffer, const uint32 minLength, const uint32 maxLength = 0)
-        {
-            if (!socket) return -1;
-            int ret = ::recv(socket, buffer, minLength, MSG_WAITALL);
-            if (ret <= 0) return ret;
-            if (maxLength <= minLength) return ret;
-
-            int nret = ::recv(socket, &buffer[ret], maxLength - ret, 0);
-            return nret <= 0 ? nret : nret + ret;
-        }
-
-
 
         bool hasValidLength() const
         {
@@ -518,7 +722,7 @@ namespace Network { namespace Client {
             {   // Here, make sure we only fetch the length first
                 // The minimal size is 2 bytes for PINGRESP and shortcut DISCONNECT / AUTH. 
                 // Because of this, we can't really outsmart the system everytime
-                ret = recv((char*)&recvBuffer[available], 2 - available);
+                ret = socket->recv((char*)&recvBuffer[available], 2 - available);
                 if (ret > 0) available += ret;
                 // Deal with timeout first
                 if (ret < 0 || available < 2)
@@ -528,7 +732,7 @@ namespace Network { namespace Client {
                 if (recvBuffer[0] < 0xD0 || recvBuffer[1]) // Below ping response or packet size larger than 2 bytes
                 {
                     int querySize = (packetExpectedVBSize + 1) - available;
-                    ret = recv((char*)&recvBuffer[available], querySize);
+                    ret = socket->recv((char*)&recvBuffer[available], querySize);
                     if (ret > 0) available += ret;
                     // Deal with timeout first
                     if (ret < 0) return (errno == EWOULDBLOCK) ? -2 : -1;
@@ -556,7 +760,7 @@ namespace Network { namespace Client {
             }
             uint32 remainingLength = len;
             uint32 totalPacketSize = remainingLength + 1 + len.getSize();
-            ret = totalPacketSize == available ? 0 : recv((char*)&recvBuffer[available], totalPacketSize - available);
+            ret = totalPacketSize == available ? 0 : socket->recv((char*)&recvBuffer[available], totalPacketSize - available);
             if (ret > 0) available += ret;
             if (ret < 0) return (errno == EWOULDBLOCK) ? -2 : -1;
 
@@ -618,79 +822,30 @@ namespace Network { namespace Client {
 
         void close()
         {
-            ::closesocket(socket); socket = -1;
+            delete0(socket);
         }
 
         bool isOpen()
         {
-            return socket != -1;
+            return socket;
         }
+
+        int send(const char * buffer, const int size) { return socket ? socket->send(buffer, size) : -1; }
 
         int connectWith(const char * host, const uint16 port, const bool withTLS)
         {
             if (isOpen()) return -1;
-            if (withTLS)
-            {
-                return -2;
-                // Insert here any session specific configuration or certificate validator
-            } else socket = ::socket(AF_INET, SOCK_STREAM, 0);
-            
-            if (socket == -1) return -2;
-
-            // Please notice that under linux, it's not required to set the socket
-            // as non blocking if you define SO_SNDTIMEO, for connect timeout.
-            // so the code below could be optimized away. Yet, lwIP does show the 
-            // same behavior so when a timeout for connection is actually required
-            // you must issue a select call here.
-
-            // Set non blocking here
-            int socketFlags = ::fcntl(socket, F_GETFL, 0);
-            if (socketFlags == -1) return -3;
-            if (::fcntl(socket, F_SETFL, (socketFlags | O_NONBLOCK)) != 0) return -3;
-
-            // Let the socket be without Nagle's algorithm
-            int flag = 1;
-            if (::setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) < 0) return -4;
-            // Then connect the socket to the server
-            struct addrinfo hints = {};
-            hints.ai_family = AF_INET;
-            hints.ai_flags = AI_ADDRCONFIG;
-            hints.ai_socktype = SOCK_STREAM;
-
-            // Resolve address
-            struct addrinfo *result = NULL;
-            if (getaddrinfo(host, NULL, &hints, &result) < 0 || result == NULL) return -6;
-
-            // Then connect to it
-            struct sockaddr_in address;
-            address.sin_port = htons(port);
-            address.sin_family = AF_INET;
-            address.sin_addr = ((struct sockaddr_in *)(result->ai_addr))->sin_addr;
-
-            // free result
-            freeaddrinfo(result);
-            int ret = ::connect(socket, (const sockaddr*)&address, sizeof(address));
-            if (ret < 0 && errno != EINPROGRESS) return -6;
-            if (ret == 0) return 0;
-
-            // Here, we need to wait until connection happens or times out
-            if (select(false, true)) 
-            {
-                // Restore blocking behavior here
-                if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
-                // And set timeouts for both recv and send
-                if (::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
-                if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -5;
-                // Ok, done!
-                return 0;
-            }
-
-            return -7;
+            socket = 
+#if MQTTUseTLS == 1
+                withTLS ? new MBTLSSocket(timeoutMs) :
+#endif
+                new BaseSocket(timeoutMs);
+            return socket ? socket->connect(host, port, brokerCert) : -1;
         }
     };
 #endif
 
-    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback) : impl(new Impl(clientID, callback)) {} 
+    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert) : impl(new Impl(clientID, callback, brokerCert)) {} 
     MQTTv5::~MQTTv5() { delete impl; impl = 0; }
 
     MQTTv5::ErrorType::Type MQTTv5::prepareSAR(Protocol::MQTT::V5::ControlPacketSerializable & packet, bool withAnswer)

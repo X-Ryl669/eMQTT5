@@ -388,7 +388,8 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
-                
+                /** Copy operator */
+                DynamicBinaryData & operator = (const DynamicBinaryData & other) { if (this != &other) this->~DynamicBinaryData(); new(this) DynamicBinaryData(other); return *this; }
                 /** Construct from a memory block */
                 DynamicBinaryData(const uint16 length = 0, const uint8 * block = 0) : length(length), data(length ? (uint8*)Platform::malloc(length) : (uint8*)0) { memcpy(data, block, length); }
                 /** Copy constructor */
