@@ -10,6 +10,7 @@ Typically, you'll find these macros:
 3. **MQTTDumpCommunication**: Useful for debugging, this dumps each packet sent and received, you'll need to turn this off for production
 4. **MQTTAvoidValidation**: If enabled, all validation code is removed. You should only use this if you master the broker used in your installation and know it'll not send malformed packet
 5. **MQTTOnlyBSDSocket**: Usually set to 1 for using plain old sockets. If set to 0, then more efficient, but larger ClassPath's network code is used
+6. **MQTTUseTLS**: If enabled, you can connect to TLS based MQTT brokers. This add some overhead in binary code size (typically 5% more) and requires MbedTLS  
 
 The client is located in `Network::Client::MQTTv5` class.
 The main methods are:
@@ -73,7 +74,7 @@ When receiving a packet, the code never does any copy, so serialization from Pro
 In that case, you'll be dealing with `PropertiesView` class and more specifically with its `bool getProperty(VisitorVariant & visitor, PropertyType & type, uint32 & offset) const` method.
 
 Typically, you'll create a `VisitorVariant` instance, a `PropertyType` instance and an `offset` counter then call `getProperty`.
-This method will fill each instance with the appropriate visitor, type and offset increase in the observed (received) buffer.
+This method will fill each instance with the appropriate visitor and type. `offset` is increased to the next property position in the observed (received) buffer.
 It's then up to you to check which property you are interested in, and extract the visited property value like this:
 
 ```
@@ -92,3 +93,5 @@ It's then up to you to check which property you are interested in, and extract t
             }
    [...]
 ```
+
+
