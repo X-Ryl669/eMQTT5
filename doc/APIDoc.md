@@ -20,10 +20,13 @@ Please notice that when receiving MQTT packet, this client never receive a Subsc
 
 Concerning properties, the client only generates views on the incoming data and does not allocate anything via the `PropertiesView` class.
 
+
 When generating properties for sending them (typically, in `CONNECT`, `PUBLISH` and `AUTH` packets), a mechanism of Copy-On-Write is used to avoid allocating useless properties.
 By default `Properties` is a chained list with 2 heads (`head` and `reference`) that are pointing to the same node. As soon as a modification is made on the chained list, the `head` is modified (the `reference` is never modified).
 When destructing, only the nodes between the `head` and the `reference` are destructed.
 Each node in a `Properties` list implements the `PropertyBase` interface, and will be asked to `suicide()` when required to destruct.
+
+
 Most `PropertyBase` instance are allocating on the stack by default, so using `Properties` and appending stack based `Property` node will result in a stack based chained list. It's perfectly fine to append a heap-allocated 
 `Property` (but make sure you're telling it's heap allocated in its constructor), it'll be deleted correctly when `Properties` instance is destructed.
 
