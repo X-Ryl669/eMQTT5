@@ -284,7 +284,7 @@ namespace Network
                                     No copy is made so please make sure the pointed data is valid while this client is valid. 
                                     If you have a PEM encoded certificate, use this code to convert it to (33% smaller) DER format 
                                     $ openssl x509 -in cert.pem -outform der -out cert.der */
-            MQTTv5(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert = 0);
+            MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert = 0);
             /** Default destructor */
             ~MQTTv5();
             

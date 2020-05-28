@@ -62,26 +62,26 @@ namespace Network { namespace Client {
     struct MQTTv5::Impl
     {
         /** The multithread protection for this object */
-        Threading::Lock         lock;
+        Threading::Lock                 lock;
         /** This client socket */
-        Socket *                socket;
+        Socket *                        socket;
         /** The DER encoded certificate (if provided) */
-        DynamicBinDataView  *   brokerCert;
+        const DynamicBinDataView  *     brokerCert;
         /** The SSL context (if any used) */
-        SSLContext *            sslContext;
+        SSLContext *                    sslContext;
         /** This client unique identifier */
-        DynamicString           clientID; 
+        DynamicString                   clientID; 
         /** The message received callback to use */
-        MessageReceived *       cb;
+        MessageReceived *               cb;
         /** The default timeout in milliseconds */
-        uint32                  timeoutMs;
+        uint32                          timeoutMs;
 
         /** The last communication time in second */
-        uint32              lastCommunication;
+        uint32                          lastCommunication;
         /** The publish current default identifier allocator */
-        uint16              publishCurrentId;    
+        uint16                          publishCurrentId;    
         /** The keep alive delay in seconds */
-        uint16              keepAlive;  
+        uint16                          keepAlive;  
 
 
         /** The reading state. Because data on a TCP stream is 
@@ -109,7 +109,7 @@ namespace Network { namespace Client {
             return ++publishCurrentId;
         }
 
-        Impl(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert)
+        Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
              : socket(0), brokerCert(brokerCert), sslContext(0), clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
@@ -404,7 +404,7 @@ namespace Network { namespace Client {
         int     socket;
         struct timeval &         timeoutMs;
 
-        MQTTVirtual int connect(const char * host, uint16 port, MQTTv5::DynamicBinDataView *)
+        MQTTVirtual int connect(const char * host, uint16 port, const MQTTv5::DynamicBinDataView *)
         {
             socket = ::socket(AF_INET, SOCK_STREAM, 0);
             if (socket == -1) return -2;
@@ -510,7 +510,7 @@ namespace Network { namespace Client {
         mbedtls_net_context net;
  
     private:
-        bool buildConf(MQTTv5::DynamicBinDataView * brokerCert)
+        bool buildConf(const MQTTv5::DynamicBinDataView * brokerCert)
         {
             if (brokerCert)
             {   // Use given root certificate (if you have a recent version of mbedtls, you could use mbedtls_x509_crt_parse_der_nocopy instead to skip a useless copy here)
@@ -546,7 +546,7 @@ namespace Network { namespace Client {
             mbedtls_entropy_init(&entropy);
         }
 
-        int connect(const char * host, uint16 port, MQTTv5::DynamicBinDataView * brokerCert)
+        int connect(const char * host, uint16 port, const MQTTv5::DynamicBinDataView * brokerCert)
         {
             int ret = BaseSocket::connect(host, port, 0);
             if (ret) return ret;
@@ -624,24 +624,24 @@ namespace Network { namespace Client {
     struct MQTTv5::Impl
     {
         /** The multithread protection for this object */
-        Lock                    lock;
+        Lock                        lock;
         /** This client socket */
-        BaseSocket *            socket;
+        BaseSocket *                socket;
         /** The DER encoded certificate (if provided) */
-        DynamicBinDataView *    brokerCert;
+        const DynamicBinDataView *  brokerCert;
         /** This client unique identifier */
-        DynamicString           clientID; 
+        DynamicString               clientID; 
         /** The message received callback to use */
-        MessageReceived *       cb;
+        MessageReceived *           cb;
         /** The default timeout in milliseconds */
-        struct timeval          timeoutMs;
+        struct timeval              timeoutMs;
 
         /** The last communication time in second */
-        uint32              lastCommunication;
+        uint32                      lastCommunication;
         /** The publish current default identifier allocator */
-        uint16              publishCurrentId;    
+        uint16                      publishCurrentId;    
         /** The keep alive delay in seconds */
-        uint16              keepAlive;  
+        uint16                      keepAlive;  
 
 
         /** The reading state. Because data on a TCP stream is 
@@ -669,7 +669,7 @@ namespace Network { namespace Client {
             return ++publishCurrentId;
         }
 
-        Impl(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert)
+        Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
              : socket(0), brokerCert(brokerCert), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
@@ -845,7 +845,7 @@ namespace Network { namespace Client {
     };
 #endif
 
-    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, DynamicBinDataView * brokerCert) : impl(new Impl(clientID, callback, brokerCert)) {} 
+    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert) : impl(new Impl(clientID, callback, brokerCert)) {} 
     MQTTv5::~MQTTv5() { delete impl; impl = 0; }
 
     MQTTv5::ErrorType::Type MQTTv5::prepareSAR(Protocol::MQTT::V5::ControlPacketSerializable & packet, bool withAnswer)
