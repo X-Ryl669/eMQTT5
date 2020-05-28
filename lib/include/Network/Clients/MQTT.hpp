@@ -63,6 +63,46 @@ namespace Network
     /** All the network client are declared here */
     namespace Client
     {
+#ifndef HasMsgRecvCB
+        /** Message received callback interface you must overload. */
+	    struct MessageReceived
+	    {
+            typedef Protocol::MQTT::V5::DynamicStringView           DynamicStringView;
+            typedef Protocol::MQTT::V5::DynamicBinDataView          DynamicBinDataView;
+            typedef Protocol::MQTT::V5::PropertiesView              PropertiesView;
+            typedef Protocol::MQTT::V5::ReasonCodes                 ReasonCodes;
+
+	        /** This is called upon published message reception.
+	            @param topic            The topic for this publication
+	            @param payload          The payload for this publication (can be empty)
+	            @param packetIdentifier If non zero, contains the packet identifier. This is usually ignored
+	            @param properties       If any attached to the packet, you'll find the list here. */
+	        virtual void messageReceived(const DynamicStringView & topic, const DynamicBinDataView & payload, 
+	                                     const uint16 packetIdentifier, const PropertiesView & properties) = 0;
+	        /** This is usually called upon creation to know what it the maximum packet size you'll support.
+	            By default, MQTT allows up to 256MB control packets. 
+	            On embedded system, this is very unlikely to be supported. 
+	            This implementation does not support streaming so a buffer is created on the heap with this size 
+	            to store the received control packet. 
+	            @return Defaults to 2048 bytes */
+	        virtual uint32 maxPacketSize() const { return 2048U; }
+
+#if MQTTUseAuth == 1
+	        /** An authentication packet was received. 
+	            @param reasonCode       Any of Success, ContinueAuthentication, ReAuthenticate
+	            @param authMethod       The authentication method
+	            @param authData         The authentication data
+	            @param properties       If any attached to the packet, you'll find the list here. 
+	            @warning By default, no action is done upon authentication packets. It's up to you to implement those packets */
+	        virtual void authReceived(const ReasonCodes reasonCode, const DynamicStringView & authMethod, const DynamicBinDataView & authData, const PropertiesView & properties) { }
+#endif
+	        virtual ~MessageReceived() {}
+	    };
+#define HasMsgRecvCB
+#endif
+
+
+#ifndef HasMQTTv5Client
         /** A very simple MQTTv5 client. 
             This client was made with a minimal binary size footprint in mind, yet with maximum performance.
             Currently, only the bare protocol function are supported, but that should be enough to get you started.
@@ -118,35 +158,6 @@ namespace Network
 
             
 
-            /** Message received callback interface you must overload. */
-            struct MessageReceived
-            {
-                /** This is called upon published message reception.
-                    @param topic            The topic for this publication
-                    @param payload          The payload for this publication (can be empty)
-                    @param packetIdentifier If non zero, contains the packet identifier. This is usually ignored
-                    @param properties       If any attached to the packet, you'll find the list here. */
-                virtual void messageReceived(const DynamicStringView & topic, const DynamicBinDataView & payload, 
-                                             const uint16 packetIdentifier, const PropertiesView & properties) = 0;
-                /** This is usually called upon creation to know what it the maximum packet size you'll support.
-                    By default, MQTT allows up to 256MB control packets. 
-                    On embedded system, this is very unlikely to be supported. 
-                    This implementation does not support streaming so a buffer is created on the heap with this size 
-                    to store the received control packet. 
-                    @return Defaults to 2048 bytes */
-                virtual uint32 maxPacketSize() const { return 2048U; }
-
-#if MQTTUseAuth == 1
-                /** An authentication packet was received. 
-                    @param reasonCode       Any of Success, ContinueAuthentication, ReAuthenticate
-                    @param authMethod       The authentication method
-                    @param authData         The authentication data
-                    @param properties       If any attached to the packet, you'll find the list here. 
-                    @warning By default, no action is done upon authentication packets. It's up to you to implement those packets */
-                virtual void authReceived(const ReasonCodes reasonCode, const DynamicStringView & authMethod, const DynamicBinDataView & authData, const PropertiesView & properties) { }
-#endif
-                virtual ~MessageReceived() {}
-            };
 
             struct Impl;
 
@@ -278,6 +289,9 @@ namespace Network
             ~MQTTv5();
             
         };
+#define HasMQTTv5Client
+#endif
+
     }
 }
 

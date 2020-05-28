@@ -1,5 +1,5 @@
-#ifndef hpp_Types_hpp
-#define hpp_Types_hpp
+#ifndef hpp_eMQTTTypes_hpp
+#define hpp_eMQTTTypes_hpp
 
 
 
@@ -469,19 +469,19 @@ inline size_t Monsanto(const size_t x, const size_t wordSize = 4) { return (x + 
     #define Final
 #endif
 
-/** Free a pointer and zero it */
-template <typename T> inline void free0(T*& t) { free(t); t = 0; }
-/** Delete a pointer and zero it */
-template <typename T> inline void delete0(T*& t) { delete t; t = 0; }
-/** Delete a pointer to an array and zero it */
-template <typename T> inline void deleteA0(T*& t) { delete[] t; t = 0; }
-/** Delete a pointer to an array, zero it, and zero the elements count too */
-template <typename T, typename U> inline void deleteA0(T*& t, U & size) { delete[] t; t = 0; size = 0; }
-/** Delete all items of an array, delete the array, zero it, and zero the elements count too */
-template <typename T, typename U> inline void deleteArray0(T*& t, U & size) { for (U i = 0; i < size; i++) delete t[i]; delete[] t; t = 0; size = 0; }
-/** Delete all array items of an array, delete the array, zero it, and zero the elements count too */
-template <typename T, typename U> inline void deleteArrayA0(T*& t, U & size) { for (U i = 0; i < size; i++) delete[] t[i]; delete[] t; t = 0; size = 0; }
-
+#ifndef DontWantFreeHelpers
+    /** Free a pointer and zero it */
+    template <typename T> inline void free0(T*& t) { free(t); t = 0; }
+    /** Delete a pointer and zero it */
+    template <typename T> inline void delete0(T*& t) { delete t; t = 0; }
+    /** Delete a pointer to an array and zero it */
+    template <typename T> inline void deleteA0(T*& t) { delete[] t; t = 0; }
+    /** Delete a pointer to an array, zero it, and zero the elements count too */
+    template <typename T, typename U> inline void deleteA0(T*& t, U & size) { delete[] t; t = 0; size = 0; }
+    /** Delete all items of an array, delete the array, zero it, and zero the elements count too */
+    template <typename T, typename U> inline void deleteArray0(T*& t, U & size) { for (U i = 0; i < size; i++) delete t[i]; delete[] t; t = 0; size = 0; }
+    /** Delete all array items of an array, delete the array, zero it, and zero the elements count too */
+    template <typename T, typename U> inline void deleteArrayA0(T*& t, U & size) { for (U i = 0; i < size; i++) delete[] t[i]; delete[] t; t = 0; size = 0; }
 
 namespace Private
 {
@@ -507,6 +507,7 @@ namespace Private
 #endif
 
 #define AlignOf(X) Private::Alignment<X>::value
+#endif
 
 
 #ifndef TypeDetection_Impl
@@ -545,6 +546,7 @@ MakePOD(float);
 #undef MakeIntPOD
 #endif
 
+#ifndef DontWantSafeBool
 /** Useful Safe bool idiom.
     @param Derived      The current class that should be "bool" convertible
     @param Base         If provided, it makes the complete stuff derives from this class, thus avoiding multiple inheritance
@@ -563,12 +565,12 @@ MakePOD(float);
 template <class Derived, class Base = Private::Empty>
 class SafeBool : public Base
 {
-    void badBoolType() {} typedef void (SafeBool::*badBoolPtr)();
+    void badBoolType() {}; typedef void (SafeBool::*badBoolPtr)();
 public:
     /** When used like in a bool context, this is called */
     inline operator badBoolPtr() const { return !static_cast<Derived const&>( *this ) ? 0 : &SafeBool::badBoolType; }
 };
-
+#endif
 
 
 #define WantFloatParsing 1

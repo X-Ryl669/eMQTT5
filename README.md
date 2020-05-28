@@ -33,7 +33,7 @@ The higher level API which is documented [here](https://github.com/X-Ryl669/eMQT
 In all cases, almost all methods avoid allocating memory on the heap (stack is prefered whenever possible).
 There is only few places where heap allocations are performed and they are documented in there respective documentation.
 
-Typically, user-generated [Properties](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1672) are allocating on the heap (in your code, not here) and user-generated [SubscribeTopic](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1938)  are also allocating on the heap (in your code, not here). 
+Typically, user-generated [Properties](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1672) are allocating on the heap (in your code, not here) and user-generated [SubscribeTopic](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1938) are also allocating on the heap (in your code, not here). 
 
 An example software is provided that's implementing a complete MQTTv5 client in [MQTTc.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master/tests/MQTTc.cpp) where you can subscribe/publish to a topic. This file, once built on a Linux AMD64 system takes 80kB of binary space without any dependencies.
 
