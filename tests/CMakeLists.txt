@@ -7,6 +7,7 @@ add_executable(MQTTc
     ClassPath/src/Logger.cpp
     ClassPath/src/Strings.cpp
     ClassPath/src/Time.cpp
+    ClassPath/src/LinuxSpecific.cpp
     $<IF:$<PLATFORM_ID:WIN32>,ClassPath/src/Windows.cpp,ClassPath/src/Posix.cpp>
 
     ClassPath/src/bstrlib.c)
