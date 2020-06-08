@@ -28,7 +28,7 @@ jobs:
           command: 'cmake --build build'
       - run:
           name: Unit Testing
-          command: './build/tests/MQTTc --help'
+          command: './build/tests/MQTTc'
 # Orchestrate or schedule a set of jobs
 workflows:
   # Name the workflow "welcome"

@@ -84,7 +84,11 @@ int main(int argc, const char ** argv)
     Arguments::declare(dumpComm, "Dump communication", "verbose");
     
     String error = Arguments::parse(argc, argv);
-    if (error) return fprintf(stderr, "%s\n", (const char*)error);
+    if (error) 
+    {
+	fprintf(stderr, "%s\n", (const char*)error);
+	return argc != 1;
+    }
     if (!server) return fprintf(stderr, "No server URL given. Leaving...\n");
 
     InitLogger initLogger(dumpComm);
