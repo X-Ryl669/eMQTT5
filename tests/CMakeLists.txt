@@ -24,7 +24,7 @@ set_target_properties(MQTTc PROPERTIES
 
 include_directories(ClassPath/include/)
 
-target_compile_definitions(MQTTc PUBLIC _DEBUG=$<CONFIG:Debug> MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON>)
+target_compile_definitions(MQTTc PUBLIC _DEBUG=$<CONFIG:Debug> MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON> $<$<PLATFORM_ID:Linux>:_LINUX=1>)
 
 IF(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
   IF (WIN32)
