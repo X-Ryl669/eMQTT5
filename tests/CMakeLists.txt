@@ -12,6 +12,9 @@ add_executable(MQTTc
 
     ClassPath/src/bstrlib.c)
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 set_target_properties(MQTTc PROPERTIES
     CXX_STANDARD 11
     CXX_STANDARD_REQUIRED YES
@@ -33,4 +36,4 @@ IF(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
 ENDIF()
 
 
-target_link_libraries(MQTTc LINK_PUBLIC eMQTT5)
+target_link_libraries(MQTTc LINK_PUBLIC eMQTT5 ${CMAKE_DL_LIBS} Threads::Threads)

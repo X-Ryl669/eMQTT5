@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.9)
 
 # Fix behavior of CMAKE_CXX_STANDARD when targeting macOS.
 if (POLICY CMP0025)
@@ -12,3 +12,4 @@ option(REDUCED_FOOTPRINT "Whether to enable reduced footprint for the client cod
 
 add_subdirectory(lib)
 add_subdirectory(tests)
+
