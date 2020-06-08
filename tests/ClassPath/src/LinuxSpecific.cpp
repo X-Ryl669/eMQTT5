@@ -1,5 +1,5 @@
 #if defined(_LINUX)
-#include "../../include/Types.hpp"
+#include "../../lib/include/Types.hpp"
 
     // We have to build this out of the standard header, as we are using kernel stuff that conflicts with userspace include
     #include <sys/ioctl.h>
