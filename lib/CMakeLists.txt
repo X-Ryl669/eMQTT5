@@ -14,3 +14,5 @@ ELSE()
 ENDIF()
 
 target_include_directories(eMQTT5 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+install(TARGETS eMQTT5 LIBRARY DESTINATION lib)

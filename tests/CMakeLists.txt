@@ -38,3 +38,5 @@ ENDIF()
 
 
 target_link_libraries(MQTTc LINK_PUBLIC eMQTT5 ${CMAKE_DL_LIBS} Threads::Threads)
+install(TARGETS MQTTc RUNTIME DESTINATION bin)
+
