@@ -7,6 +7,7 @@ add_executable(MQTTc
     ClassPath/src/Logger.cpp
     ClassPath/src/Strings.cpp
     ClassPath/src/Time.cpp
+    ClassPath/src/Socket.cpp
     ClassPath/src/LinuxSpecific.cpp
     $<$<PLATFORM_ID:WIN32>:ClassPath/src/Windows.cpp>
     $<$<NOT:$<PLATFORM_ID:WIN32>>:ClassPath/src/Posix.cpp>
@@ -24,7 +25,11 @@ set_target_properties(MQTTc PROPERTIES
 
 include_directories(ClassPath/include/)
 
-target_compile_definitions(MQTTc PUBLIC _DEBUG=$<CONFIG:Debug> MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON> $<$<PLATFORM_ID:Linux>:_LINUX=1>)
+target_compile_definitions(MQTTc PUBLIC _DEBUG=$<CONFIG:Debug> 
+                                        MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON> 
+                                        $<$<PLATFORM_ID:Linux>:_LINUX=1> 
+                                        MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF> 
+                                        MQTTUseTLS=$<AND:$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>,$<STREQUAL:${ENABLE_TLS},ON>>)
 
 IF(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
   IF (WIN32)

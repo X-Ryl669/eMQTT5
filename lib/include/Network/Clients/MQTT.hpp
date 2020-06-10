@@ -34,8 +34,9 @@
     Please notice that this has no effect if MQTTOnlyBSDSocket is 0, since ClassPath embeds its own SSL socket 
     code (abstracted away at a higher level)
     Default: 1 */
-#define MQTTUseTLS          0
-
+#ifndef MQTTUseTLS
+  #define MQTTUseTLS          0
+#endif
 
 /** Simple socket code.
     If set to true, this disables the optimized network code from ClassPath and fallback to the minimal subset 
@@ -49,8 +50,12 @@
     have a very slow connection sending 1 byte per the timeout delay, in the former case, it'll timeout after 
     the first byte is received, while in the latter case, it might never timeout and take up to 
     `timeout * packetLength` time to return.
+
+    
     Default: 0 */
-#define MQTTOnlyBSDSocket   1
+#ifndef MQTTOnlyBSDSocket 
+  #define MQTTOnlyBSDSocket   1
+#endif
 
 // We need protocol declaration for this client
 #include "../../Protocol/MQTT/MQTT.hpp"

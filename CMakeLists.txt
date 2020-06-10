@@ -8,6 +8,8 @@ endif ()
 project(eMQTT5)
 
 option(REDUCED_FOOTPRINT "Whether to enable reduced footprint for the client code" ON)
+option(CROSSPLATFORM_SOCKET "Whether to use cross plaftform socket code (this disable SSL)" OFF)
+option(ENABLE_TLS "Whether to enable TLS/SSL code (you'll need MBedTLS available)" OFF)
 
 
 add_subdirectory(lib)
