@@ -57,6 +57,30 @@ void ctrlc(int sig)
     if (sig == SIGINT) cont = false;
 }
 
+#if MQTTUseTLS == 1
+struct ScopeFile
+{
+    FILE * f;
+    operator FILE *() const { return f; }
+    ScopeFile(const char * path) : f(fopen(path, "rb")) {}
+    ~ScopeFile() { if (f) fclose(f); }
+};
+
+String readFile(const String & path)
+{
+    String ret;
+    ScopeFile f(path);
+    if (!f) return ret;
+    if (fseek(f, 0,  SEEK_END)) return ret;
+    long size = ftell(f);
+    if (fseek(f, 0, SEEK_SET)) return ret;
+
+    if (!size || size > 2048*1024) return ret;
+    int r = fread(ret.Alloc(size), 1, size, f);
+    ret.releaseLock(r);
+    return ret;
+}
+#endif
 
 int main(int argc, const char ** argv)
 {
@@ -66,6 +90,7 @@ int main(int argc, const char ** argv)
     String password;
     String clientID;
     String subscribe;
+    String certFile;
     unsigned keepAlive = 300; 
     bool   dumpComm = false;
     bool   retainPublishedMessage = false;
@@ -80,14 +105,15 @@ int main(int argc, const char ** argv)
     Arguments::declare(retainPublishedMessage, "Retain published message", "retain");
     Arguments::declare(setQoS, "Quality of service for publishing or subscribing", "qos");
     Arguments::declare(subscribe, "The subscription topic", "subscribe", "sub");
+    Arguments::declare(certFile, "Expected broker certificate in DER format", "der");
 
     Arguments::declare(dumpComm, "Dump communication", "verbose");
     
     String error = Arguments::parse(argc, argv);
     if (error) 
     {
-	fprintf(stderr, "%s\n", (const char*)error);
-	return argc != 1;
+        fprintf(stderr, "%s\n", (const char*)error);
+        return argc != 1;
     }
     if (!server) return fprintf(stderr, "No server URL given. Leaving...\n");
 
@@ -100,7 +126,20 @@ int main(int argc, const char ** argv)
     Network::Address::URL serverURL(server);
     uint16 port = serverURL.stripPortFromAuthority(1883);
     MessageReceiver receiver;
+    
+#if MQTTUseTLS == 1
+    Protocol::MQTT::Common::DynamicBinaryData brokerCert;
+    if (certFile)
+    {
+        // Load the certificate if provided
+        String certContent = readFile(certFile);
+        brokerCert = Protocol::MQTT::Common::DynamicBinaryData(certContent.getLength(), (const uint8*)certContent);
+    }
+    Protocol::MQTT::Common::DynamicBinDataView certView(brokerCert);
+    Network::Client::MQTTv5 client(clientID, &receiver, certFile ? &certView : (Network::Client::MQTTv5::DynamicBinDataView*)0);
+#else
     Network::Client::MQTTv5 client(clientID, &receiver);
+#endif
     Network::Client::MQTTv5::DynamicBinDataView pw(password.getLength(), (const uint8*)password);
 
     if (Network::Client::MQTTv5::ErrorType ret = client.connectTo(serverURL.getAuthority(), port, serverURL.getScheme().caselessEqual("mqtts"), 

@@ -6,6 +6,10 @@ set_target_properties(eMQTT5 PROPERTIES
     CXX_EXTENSIONS NO
 )
 
+IF (${CROSSPLATFORM_SOCKET} STREQUAL "ON" AND ${ENABLE_TLS} STREQUAL "ON") 
+  message(WARNING "Building crossplatform socket code with TLS is not supported yet, disabling TLS code")
+ENDIF()
+
 target_compile_definitions(eMQTT5 PUBLIC _DEBUG=$<CONFIG:Debug> 
                                         MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON>
                                         $<$<PLATFORM_ID:Linux>:_LINUX=1> 

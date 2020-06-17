@@ -943,7 +943,7 @@ namespace Network
                 struct sockaddr_in6 *addr = (struct sockaddr_in6*)&bigaddr;
                 if (sizeof(*addr) == socklen)
                 {
-                    Network::Address::IPV6 * realAddress = dynamic_cast<Network::Address::IPV6 *>(address);
+                    Network::Address::IPV6 * realAddress = (Network::Address::IPV6 *)address;
                     if (realAddress && address->getTypeID() == 2)
                         *realAddress = Network::Address::IPV6((const uint8 *)addr->sin6_addr.s6_addr, (uint16)ntohs(addr->sin6_port));
                     else
