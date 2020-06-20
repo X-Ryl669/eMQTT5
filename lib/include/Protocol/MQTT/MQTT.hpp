@@ -143,7 +143,6 @@ namespace Protocol
                 }
 #endif                
 
-
                 /** Default destructor */
                 virtual ~MemMappedVisitor() {}
             };
@@ -726,14 +725,24 @@ namespace Protocol
                 DISCONNECT      = 14,   //!< Src:B Disconnect notification
                 AUTH            = 15,   //!< Src:B Authentication exchanged
             };
-            
-            static const char * getControlPacketName(ControlPacketType type)
-            {
-                static const char * names[16] = { "RESERVED", "CONNECT", "CONNACK", "PUBLISH", "PUBACK", "PUBREC", "PUBREL", "PUBCOMP", "SUBSCRIBE", "SUBACK",
-                                                  "UNSUBSCRIBE", "UNSUBACK", "PINGREQ", "PINGRESP", "DISCONNECT", "AUTH" };
-                return names[(int)type];
-            }
 
+            /** This is a useless struct used to define a static function in the header */
+            struct Helper
+            {
+                /** Used for debug only, this convert the control packet type to a name */
+                static const char * getControlPacketName(const ControlPacketType type)
+                {
+                    static const char * names[16] = { "RESERVED", "CONNECT", "CONNACK", "PUBLISH", "PUBACK", "PUBREC", "PUBREL", "PUBCOMP", "SUBSCRIBE", "SUBACK",
+                                                      "UNSUBSCRIBE", "UNSUBACK", "PINGREQ", "PINGRESP", "DISCONNECT", "AUTH" };
+                    return names[(int)type];
+                }
+                /** Get the next packet for each ACK of publishing */
+                static ControlPacketType getNextPacketType(const ControlPacketType type)
+                {
+                    static uint8 nexts[16] = { 0, 0, 0, PUBACK, 0, PUBREL, PUBCOMP, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+                    return (ControlPacketType)nexts[type];
+                }
+            };
         }
     
         /** The version 5 for this protocol (OASIS MQTTv5 http://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html ) */
@@ -2626,13 +2635,6 @@ namespace Protocol
             template <> struct FixedField<UNSUBSCRIBE>  Final: public FixedFieldWithID {};
             /** The UNSUBACK header is a generic FixedField header with a packet id */
             template <> struct FixedField<UNSUBACK>     Final: public FixedFieldWithID {};
-
-            /** Get the next packet for each ACK of publishing */
-            static ControlPacketType getNextPacketType(const ControlPacketType type)
-            {
-                static uint8 nexts[16] = { 0, 0, 0, PUBACK, 0, PUBREL, PUBCOMP, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-                return (ControlPacketType)nexts[type];
-            }
 
             /** The PUBACK header is a generic FixedField header with a reason code */
             template <> struct FixedField<PUBACK>       Final: public FixedFieldWithIDAndReason {};

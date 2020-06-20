@@ -1247,7 +1247,7 @@ namespace Network { namespace Client {
                     return Protocol::MQTT::V5::ProtocolError;
                 
                 // Compute the expected next packet
-                next = Protocol::MQTT::V5::getNextPacketType(next);
+                next = Protocol::MQTT::Common::Helper::getNextPacketType(next);
                 if (next == Protocol::MQTT::V5::RESERVED) 
                     return ErrorType::Success;
             } else sending = true;
@@ -1255,7 +1255,7 @@ namespace Network { namespace Client {
             // Check if we need to send something 
             Protocol::MQTT::V5::PublishReplyPacket answer(next);
             answer.fixedVariableHeader.packetID = packetID;
-            next = Protocol::MQTT::V5::getNextPacketType(next);
+            next = Protocol::MQTT::Common::Helper::getNextPacketType(next);
             if (ErrorType err = prepareSAR(answer, next != Protocol::MQTT::V5::RESERVED))
                 return err;
         }
