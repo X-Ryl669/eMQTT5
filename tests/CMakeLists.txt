@@ -42,6 +42,11 @@ IF(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
 ENDIF()
 
 
+IF (CROSSPLATFORM_SOCKET STREQUAL OFF AND ENABLE_TLS STREQUAL ON)
+    target_link_libraries(MQTTc LINK_PRIVATE mbedtls mbedcrypto mbedx509)
+ENDIF()
+
+
 target_link_libraries(MQTTc LINK_PUBLIC eMQTT5 ${CMAKE_DL_LIBS} Threads::Threads)
 install(TARGETS MQTTc RUNTIME DESTINATION bin)
 
