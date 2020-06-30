@@ -141,7 +141,7 @@ namespace Network { namespace Client {
             Utils::hexDump(packetDump, (const uint8*)buffer, length, 16, true, true);
             Protocol::MQTT::V5::FixedHeader header;
             header.raw = buffer[0];
-            Logger::log(Logger::Dump, "> Sending packet: %s(R:%d,Q:%d,D:%d)%s", Protocol::MQTT::V5::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup, (const char*)packetDump);
+            Logger::log(Logger::Dump, "> Sending packet: %s(R:%d,Q:%d,D:%d)%s", Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup, (const char*)packetDump);
 #endif
             return socket->sendReliably(buffer, (int)length, timeoutMs);
         }
@@ -400,7 +400,7 @@ namespace Network { namespace Client {
         // Dump the packet to send
         Protocol::MQTT::V5::FixedHeader header;
         header.raw = buffer[0];
-        printf("%s: %s(R:%d,Q:%d,D:%d)\n", prompt, Protocol::MQTT::V5::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup);
+        printf("%s: %s(R:%d,Q:%d,D:%d)\n", prompt, Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup);
         hexdump(buffer, length);
     }
 #endif
@@ -444,7 +444,7 @@ namespace Network { namespace Client {
 
             // Resolve address
             struct addrinfo *result = NULL;
-            if (getaddrinfo(host, NULL, &hints, &result) < 0 || result == NULL) return -6;
+            if (getaddrinfo(host, NULL, &hints, &result) < 0 || result == NULL) return -5;
 
             // Then connect to it
             struct sockaddr_in address;
@@ -465,7 +465,7 @@ namespace Network { namespace Client {
                 if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
                 // And set timeouts for both recv and send
                 if (::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
-                if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -5;
+                if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
                 // Ok, done!
                 return 0;
             }

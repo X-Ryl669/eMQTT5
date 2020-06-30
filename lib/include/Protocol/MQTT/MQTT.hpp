@@ -884,7 +884,7 @@ namespace Protocol
                 virtual bool check() const { return true; }
 #endif
 #if MQTTDumpCommunication == 1
-                virtual void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type %s, no flags)\n", (int)indent, "", getControlPacketName(getType())); }
+                virtual void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type %s, no flags)\n", (int)indent, "", Helper::getControlPacketName(getType())); }
 #endif    
 
                 FixedHeaderBase(const ControlPacketType type, const uint8 flags) : typeAndFlags(((uint8)type) << 4 | (flags & 0xF)) {}
@@ -3186,7 +3186,7 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += MQTTStringPrintf("%*s%s control packet (rlength: %u)\n", (int)indent, "", getControlPacketName(header.getType()), (uint32)remLength); 
+                    out += MQTTStringPrintf("%*s%s control packet (rlength: %u)\n", (int)indent, "", Helper::getControlPacketName(header.getType()), (uint32)remLength); 
                     header.dump(out, indent + 2);
                     fixedVariableHeader.dump(out, indent + 2);
                     props.dump(out, indent + 2);
@@ -3337,7 +3337,7 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += MQTTStringPrintf("%*s%s control packet\n", (int)indent, "", getControlPacketName(type)); 
+                    out += MQTTStringPrintf("%*s%s control packet\n", (int)indent, "", Helper::getControlPacketName(type)); 
                     header.dump(out, indent + 2);
                 }
 #endif                
