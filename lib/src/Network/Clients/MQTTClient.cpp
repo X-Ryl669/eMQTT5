@@ -400,7 +400,7 @@ namespace Network { namespace Client {
         // Dump the packet to send
         Protocol::MQTT::V5::FixedHeader header;
         header.raw = buffer[0];
-        printf("%s: %s(R:%d,Q:%d,D:%d)\n", prompt, Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup);
+        printf("%s: %s(R:%d,Q:%d,D:%d)\n", prompt, Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)(uint8)header.type), (uint8)header.retain, (uint8)header.QoS, (uint8)header.dup);
         hexdump(buffer, length);
     }
 #endif
@@ -797,7 +797,7 @@ namespace Network { namespace Client {
             if (recvState != GotCompletePacket) return Protocol::MQTT::V5::RESERVED;
             Protocol::MQTT::V5::FixedHeader header;
             header.raw = recvBuffer[0];
-            return (Protocol::MQTT::V5::ControlPacketType)header.type;
+            return (Protocol::MQTT::V5::ControlPacketType)(uint8)header.type;
         }
 
         /** Extract a control packet of the given type */
@@ -1139,7 +1139,7 @@ namespace Network { namespace Client {
             return ErrorType::BadParameter;
 
         // Create the subscribe topic here
-        Protocol::MQTT::V5::SubscribeTopic topic(_topic, retainHandling, retainAsPublished, withAutoFeedBack, maxAcceptedQoS, true);
+        Protocol::MQTT::V5::SubscribeTopic topic(_topic, retainHandling, retainAsPublished, !withAutoFeedBack, maxAcceptedQoS, true);
         // Then proceed to subscribing
         return subscribe(topic, properties);
     }

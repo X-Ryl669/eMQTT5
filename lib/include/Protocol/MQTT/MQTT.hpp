@@ -65,6 +65,35 @@ namespace Protocol
             /** Check if serialization shortcut was used */
             static inline bool isShortcut(uint32 value) { return value == Shortcut; }
 
+            /** A cross platform bitfield class that should be used in union like this:
+                @code
+                union
+                {
+                    T whatever;
+                    BitField<T, 0, 1> firstBit;
+                    BitField<T, 7, 1> lastBit;
+                    BitField<T, 2, 2> someBits;
+                };
+                @endcode */
+            template <typename T, int Offset, int Bits>
+            struct BitField
+            {
+                /** This is public to avoid undefined behavior while used in union */ 
+                T value;
+
+                static_assert(Offset + Bits <= (int) sizeof(T) * 8, "Member exceeds bitfield boundaries");
+                static_assert(Bits < (int) sizeof(T) * 8, "Can't fill entire bitfield with one member");
+
+                /** Base constants are typed to T so we skip type conversion everywhere */ 
+                static const T Maximum = (T(1) << Bits) - 1;
+                static const T Mask = Maximum << Offset;
+
+                /** Main access operator, use like any other member */
+                inline operator T() const { return (value >> Offset) & Maximum; }
+                /** Assign operator */
+                inline BitField & operator = (T v) { value = (value & ~Mask) | (v << Offset); return *this; }
+            };
+
 
             /** The base interface all MQTT serializable structure must implement */
             struct Serializable
@@ -464,6 +493,10 @@ namespace Protocol
                 DynamicStringView(const DynamicString & other) : length(other.length), data(other.data) {}
                 /** From a given C style buffer */
                 DynamicStringView(const char * string) : length(strlen(string)), data(string) {}
+                /** From a given C style buffer with length */
+                DynamicStringView(const char * string, const size_t len) : length(len), data(string) {}
+                /** From a given C style buffer with length */
+                DynamicStringView(const MQTTROString & text) : length(MQTTStringGetLength(text)), data(MQTTStringGetData(text)) { }
                 /** A null version */
                 DynamicStringView() : length(0), data(0) {}
 
@@ -846,33 +879,15 @@ namespace Protocol
                 This is not used directly, but only to remember the expected format. Instead, each packet type is declared underneath, since it's faster to parse them directly */
             struct FixedHeader
             {
-#if IsBigEndian == 1
                 union
                 {
-                    uint8 raw : 8;
-                    struct
-                    {
-                        /** The packet type */
-                        uint8 type : 4;
-                        uint8 dup : 1;
-                        uint8 QoS : 2;
-                        uint8 retain : 1;
-                    };
+                    uint8 raw;
+                    BitField<uint8, 4, 4> type;
+                    BitField<uint8, 3, 1> dup;
+                    BitField<uint8, 1, 2> QoS;
+                    BitField<uint8, 0, 1> retain;
+
                 };
-#else
-                union
-                {
-                    uint8 raw : 8;
-                    struct
-                    {
-                        uint8 retain : 1;
-                        uint8 QoS : 2;
-                        uint8 dup : 1;
-                        /** The packet type */
-                        uint8 type : 4;
-                    };
-                };
-#endif
             };
             
             struct FixedHeaderBase
@@ -1995,26 +2010,25 @@ namespace Protocol
 
                 Typically, you'll use this class like this:
                 @code
-                    PropertyView v;
+                    PropertiesView v;
                     uint32 r = v.readFrom(buffer, bufLength);
                     if (isError(r)) return BadData;
 
-                    uint32 offset = 0;
                     PropertyType type = BadProperty;
-                    MemMappedVisitor * visitor = v.getProperty(type, offset);
-                    while (visitor)
+                    uint32 offset = 0;
+                    VisitorVariant visitor;
+                    while (v.getProperty(visitor, type, offset))
                     {
                         if (type == DesiredProperty)
                         {
-                            DynamicStringView * view = static_cast<DynamicStringView *>(visitor);
+                            DynamicStringView * view = visitor.as< DynamicStringView >();
                             // Do something with view
                         }
                         else if (type == SomeOtherProperty)
                         {
-                            PODVisitor<uint8> * pod = static_cast<PODVisitor<uint8> *>(visitor);
+                            auto pod = visitor.as< PODVisitor<uint8> >();
                             uint8 value = pod->getValue(); // Do something with value 
                         }
-                        visitor = v.getProperty(type, offset);
                     }
                 @endcode */
             struct PropertiesView Final : public SerializableProperties
@@ -2174,32 +2188,16 @@ namespace Protocol
                 {
                     /** The subscribe option */
                     uint8 option;
-                    struct
-                    {
-#if IsBigEndian == 1
-                        /** Reserved bits, should be 0 */
-                        uint8 reserved : 2;
-                        /** The retain policy flag */
-                        uint8 retainHandling : 2;
-                        /** The retain as published flag */
-                        uint8 retainAsPublished : 1;
-                        /** The non local flag */
-                        uint8 nonLocal : 1;
-                        /** The QoS flag */
-                        uint8 QoS : 2;
-#else
-                        /** The QoS flag */
-                        uint8 QoS : 2;
-                        /** The non local flag */
-                        uint8 nonLocal : 1;
-                        /** The retain as published flag */
-                        uint8 retainAsPublished : 1;
-                        /** The retain policy flag */
-                        uint8 retainHandling : 2;
-                        /** Reserved bits, should be 0 */
-                        uint8 reserved : 2;
-#endif
-                    };
+                    /** Reserved bits, should be 0 */
+                    BitField<uint8, 6, 2> reserved;
+                    /** The retain policy flag */
+                    BitField<uint8, 4, 2> retainHandling;
+                    /** The retain as published flag */
+                    BitField<uint8, 3, 1> retainAsPublished;
+                    /** The non local flag */
+                    BitField<uint8, 2, 1> nonLocal;
+                    /** The QoS flag */
+                    BitField<uint8, 0, 2> QoS;
                 };
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
@@ -2376,47 +2374,28 @@ namespace Protocol
                 // The connect flags
                 union
                 {
-                   /** This is used to avoid setting all flags by hand */
-                   uint8 flags;
-                   struct
-                   {
-#if IsBigEndian == 1
-                        /** The user name flag */
-                        uint8 usernameFlag : 1;
-                        /** The password flag */
-                        uint8 passwordFlag : 1;
-                        /** The will retain flag */
-                        uint8 willRetain : 1;
-                        /** The will QoS flag */
-                        uint8 willQoS : 2;
-                        /** The will flag */
-                        uint8 willFlag : 1;
-                        /** The clean start session */
-                        uint8 cleanStart : 1;
-                        /** Reserved bit, should be 0 */
-                        uint8 reserved : 1;
-#else
-                        /** Reserved bit, should be 0 */
-                        uint8 reserved : 1;
-                        /** The clean start session */
-                        uint8 cleanStart : 1;
-                        /** The will flag */
-                        uint8 willFlag : 1;
-                        /** The will QoS flag */
-                        uint8 willQoS : 2;
-                        /** The will retain flag */
-                        uint8 willRetain : 1;
-                        /** The password flag */
-                        uint8 passwordFlag : 1;
-                        /** The user name flag */
-                        uint8 usernameFlag : 1;
-#endif
-                    };
+                    /** This is used to avoid setting all flags by hand */
+                    uint8 flags;
+                    
+                    /** The user name flag */
+                    BitField<uint8, 7, 1> usernameFlag;
+                    /** The password flag */
+                    BitField<uint8, 6, 1> passwordFlag;
+                    /** The will retain flag */
+                    BitField<uint8, 5, 1> willRetain;
+                    /** The will QoS flag */
+                    BitField<uint8, 3, 2> willQoS;
+                    /** The will flag */
+                    BitField<uint8, 2, 1> willFlag;
+                    /** The clean start session */
+                    BitField<uint8, 1, 1> cleanStart;
+                    /** Reserved bit, should be 0 */
+                    BitField<uint8, 0, 1> reserved0;
                 };
                 /** The keep alive time in seconds */
                 mutable uint16 keepAlive;
 #if MQTTAvoidValidation != 1
-                bool check() const { return reserved == 0 && willQoS < 3 && memcmp(protocolName, expectedProtocolName(), sizeof(protocolName)) == 0; }
+                bool check() const { return reserved0 == 0 && willQoS < 3 && memcmp(protocolName, expectedProtocolName(), sizeof(protocolName)) == 0; }
 #endif
                 /** Get the expected protocol name */
                 static const uint8 * expectedProtocolName() { static uint8 protocolName[6] = { 0, 4, 'M', 'Q', 'T', 'T' }; return protocolName; }
