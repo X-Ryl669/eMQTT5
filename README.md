@@ -53,3 +53,17 @@ Please check the [MQTTClient.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master
 
 There is also a port for ESP32 [here](https://github.com/X-Ryl669/esp-eMQTT5).
 
+## MQTTv5 Packet parser
+In addition to the client, the tests folder contains a MQTT packet parser for MQTT v5.0. 
+It's built by default and used like this:
+```
+$ # Give it the raw bytes from network communication and it'll dump what it means
+$ ./MQTTParsePacket 30 1E 00 18 73 74 61 74 75 73 2F 59 4F 4C 54 79 79 76 75 57 58 50 5A 2F 6C 6F 67 73 00 5B 31 5D
+Detected PUBLISH packet
+with size: 32
+PUBLISH control packet (rlength: 30)
+  Header: (type PUBLISH, retain 0, QoS 0, dup 0)
+  PUBLISH packet (id 0x0000): Str (24 bytes): status/YOLTyyvuWXPZ/logs
+  Properties with length VBInt: 0
+  Payload (length: 3)
+``` 

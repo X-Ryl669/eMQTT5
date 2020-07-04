@@ -1340,7 +1340,7 @@ namespace Protocol
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
                     if ((buffer[0] & 0x80) || buffer[0] != type) return BadData;
-                    if (bufLength < sizeof(value)+1) return NotEnoughData;
+                    if (bufLength < value.typeSize()+1) return NotEnoughData;
                     memcpy(value.raw(), buffer+1, value.typeSize());
                     value.swapNetwork();
                     return value.typeSize() + 1;
@@ -2240,7 +2240,7 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += MQTTStringPrintf("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", QoS, nonLocal, retainAsPublished, retainHandling); 
+                    out += MQTTStringPrintf("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", (uint8)QoS, (uint8)nonLocal, (uint8)retainAsPublished, (uint8)retainHandling); 
                     ScribeTopicBase::dump(out, indent);
                 }
 #endif
@@ -2459,7 +2459,7 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += MQTTStringPrintf("%*sCONNECT packet (clean %d, will %d, willQoS %d, willRetain %d, password %d, username %d, keepAlive: %d)\n", (int)indent, "", cleanStart, willFlag, willQoS, willRetain, passwordFlag, usernameFlag, keepAlive); 
+                    out += MQTTStringPrintf("%*sCONNECT packet (clean %d, will %d, willQoS %d, willRetain %d, password %d, username %d, keepAlive: %d)\n", (int)indent, "", (uint8)cleanStart, (uint8)willFlag, (uint8)willQoS, (uint8)willRetain, (uint8)passwordFlag, (uint8)usernameFlag, keepAlive); 
                 }
 #endif
                 /** The default constructor */
@@ -2859,6 +2859,7 @@ namespace Protocol
                     o += s; buffer += s; bufLength -= s;
                     if (fixedHeader->willFlag)
                     {
+                        if (!willMessage) willMessage = new WillMessage;
                         s = willMessage->readFrom(buffer, bufLength);
                         if (isError(s)) return s;
                         o += s; buffer += s; bufLength -= s;
@@ -2902,6 +2903,9 @@ namespace Protocol
 #endif
 
                 Payload<CONNECT>() : willMessage(0), fixedHeader(0) {}
+#if MQTTClientOnlyImplementation != 1
+                ~Payload<CONNECT>() { delete0(willMessage); }
+#endif
                 
             private:
                 /** This is the flags set in the connect header. This is used to ensure good serialization, this is not serialized */
