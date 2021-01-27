@@ -29,6 +29,9 @@ For many reasons:
 | eMQTT5|5.0|MIT|<17kB (no dep)|Yes (Posix+Win32+Lwip(for ex: ESP32))|
 
 ## API Documentation
+
+You'll find the [client API documentation here](https://blog.cyril.by/en/documentation/emqtt5).
+
 There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/APIDoc.md). 
 
 The higher level API which is documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/ClientAPI.md) is available when you only need to call methods of the `Network::Client::MQTTv5` class (all serialization is done for you).
