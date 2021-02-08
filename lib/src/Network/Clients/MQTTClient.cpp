@@ -253,7 +253,7 @@ namespace Network { namespace Client {
             if (recvState != GotCompletePacket) return Protocol::MQTT::V5::RESERVED;
             Protocol::MQTT::V5::FixedHeader header;
             header.raw = recvBuffer[0];
-            return (Protocol::MQTT::V5::ControlPacketType)header.type;
+            return (Protocol::MQTT::V5::ControlPacketType)(uint8)header.type;
         }
 
         /** Extract a control packet of the given type */
