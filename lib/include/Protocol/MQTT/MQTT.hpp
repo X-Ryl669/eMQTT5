@@ -1134,8 +1134,8 @@ namespace Protocol
                 /** The visitor type */
                 uint8 type;
             
-				MemMappedVisitor * getBase()
-				{
+                MemMappedVisitor * getBase()
+                {
                     switch(type)
                     {
                     case 0: return static_cast<MemMappedVisitor*>(reinterpret_cast< PODVisitor<uint8>* >             (buffer));
@@ -1147,7 +1147,7 @@ namespace Protocol
                     case 6: return static_cast<MemMappedVisitor*>(reinterpret_cast< DynamicStringPairView *>         (buffer));
                     default: return 0; 
                     }
-				}
+                }
             public:
                 uint32 acceptBuffer(const uint8 * buf, const uint32 bufLength)
                 {
