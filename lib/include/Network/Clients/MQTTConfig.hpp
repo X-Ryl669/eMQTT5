@@ -86,7 +86,7 @@
   #define CONF_SOCKET "CP"
 #endif
 
-#pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
+//#pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
 
 
 #endif
