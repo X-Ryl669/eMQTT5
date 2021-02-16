@@ -1,5 +1,5 @@
 // We need our declaration
-#include "../../include/Platform/Platform.hpp"
+#include <Platform/Platform.hpp>
 // We need string code too
 #include "../../include/Strings/Strings.hpp"
 // We need locks too

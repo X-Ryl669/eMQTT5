@@ -1,7 +1,7 @@
 #ifndef hpp_StackHeapBuffer_hpp
 #define hpp_StackHeapBuffer_hpp
 
-#include "../Types.hpp"
+#include <Types.hpp>
 
 namespace Platform
 {

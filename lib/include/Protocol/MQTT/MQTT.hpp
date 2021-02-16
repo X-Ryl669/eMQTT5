@@ -2,9 +2,9 @@
 #define hpp_CPP_MQTT_CPP_hpp
 
 // We need basic types
-#include "../../Types.hpp"
+#include <Types.hpp>
 // We need Platform code for allocations too
-#include "../../Platform/Platform.hpp"
+#include <Platform/Platform.hpp>
 
 #if (MQTTDumpCommunication == 1)
     // Because all projects are different, it's hard to give a generic method for dumping elements.

@@ -23,7 +23,10 @@ ELSE()
   target_compile_options(eMQTT5 PUBLIC $<$<CONFIG:MinSizeRel>:-fno-rtti -ffunction-sections -fdata-sections>)
 ENDIF()
 
-target_include_directories(eMQTT5 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include $<$<STREQUAL:${CROSSPLATFORM_SOCKET},ON>:${CMAKE_CURRENT_SOURCE_DIR}/../tests/ClassPath/include>)
+target_include_directories(eMQTT5
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
 install(TARGETS eMQTT5 
         ARCHIVE DESTINATION lib
