@@ -49,28 +49,26 @@ namespace Platform
     /** Get the current process name.
         This does not rely on remembering the argv[0] since this does not exists on Windows.
         This returns the name of executable used to run the process */
-    inline const char * getProcessName() { 
+    inline const char * getProcessName()
     {
         static char * processName = NULL;
         if (!processName)
         {
-#ifdef _LINUX
+  #ifdef _LINUX
             FILE * f = fopen("/proc/self/cmdline", "r");
             if (f) {
                 char buffer[256];
                 processName = strdup(fgets(buffer, 256, f));
                 fclose(f);
             }
-#elif defined(_MAC)
+  #elif defined(_MAC)
             processName = strdup(getprogname());
-#else
+  #else
             return "program";
-#endif
+  #endif
         }
         return processName;
     }
-
-return "this_program"; } // Poor workaround to avoid so many difference between platforms
 #else
     /** The simple malloc overload.
         If you need to use another allocator, you should define this method 
