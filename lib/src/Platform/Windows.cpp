@@ -1,9 +1,5 @@
 // We need our declaration
 #include "../../include/Platform/Platform.hpp"
-// We need string code too
-#include "../../include/Strings/Strings.hpp"
-// We need locks too
-#include "../../include/Threading/Lock.hpp"
 
 #ifdef _WIN32
 
@@ -100,84 +96,18 @@ namespace Platform
     {
         return ::realloc(p, size);
     }
-    
-    bool queryHiddenInput(const char * prompt, char * buffer, size_t & size)
-    {
-        DWORD amount, mode = 0;
-        // Don't allow multiple thread from running here
-        static Threading::Lock lock;
-        Threading::ScopedLock scope(lock);
         
-        HANDLE hstdin = GetStdHandle(STD_INPUT_HANDLE), hstdout = GetStdHandle(STD_OUTPUT_HANDLE);
-        if (hstdin == INVALID_HANDLE_VALUE || (hstdout == INVALID_HANDLE_VALUE && prompt && prompt[0] != 0))
-        {
-            ::MessageBoxA(NULL, "This application requires a console.\r\nPlease restart the application from a command line\r\n(type WindowsKey + R, then 'cmd.exe')", "Error", MB_OK | MB_ICONERROR);
-            return false;
-        }
-        
-        if (GetConsoleMode(hstdin, &mode) == FALSE) return false;
-        if (SetConsoleMode(hstdin, ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT) == FALSE)
-            return false;
-        // Write prompt
-        Strings::ReadOnlyUnicodeString promptUni = Strings::convert(Strings::FastString(prompt));
-        if (WriteConsoleW(hstdout, promptUni.getData(), wcslen(promptUni.getData()), &amount, NULL) == FALSE)
-            return false;
-        
-        wchar_t * inBuffer = (wchar_t*)malloc(size * sizeof(*inBuffer));
-        if (ReadConsoleW(hstdin, inBuffer, size, &amount, NULL) == FALSE)
-        {   free(inBuffer); return false; }
-        
-        Strings::FastString input = Strings::convert(Strings::ReadOnlyUnicodeString(inBuffer, amount));
-        free(inBuffer);
-        
-        memset(buffer, 0, size);
-        memcpy(buffer, (const char*)input, ((size_t)input.getLength() < size - 1 ? (size_t)input.getLength() : size - 1));
-        size = (size_t)input.getLength() < size ? (size_t)input.getLength() : size;
-        
-        return SetConsoleMode(hstdin, mode) != FALSE;
-    }
-    
     const char * getProcessName()
     {
-        static Strings::FastString processName;
+        static char * processName;
         if (!processName)
         {
-            wchar_t outBuffer[1024];
-            DWORD procSize = GetModuleFileNameW(NULL, outBuffer, 1024);
+            char outBuffer[1024];
+            DWORD procSize = GetModuleFileNameA(NULL, outBuffer, 1024);
             if (procSize)
-            {
-                processName = Strings::convert(Strings::ReadOnlyUnicodeString(outBuffer, procSize)).fromLast("\\");
-            }
+                processName = strdup(outBuffer); // It's ugly, it leaks, but it's small.
         }
         return processName;
-    }
-    
-    DynamicLibrary::DynamicLibrary(const char * pathToLibrary)
-        : handle(0)
-    {
-        Strings::ReadOnlyUnicodeString path = Strings::convert(Strings::FastString(pathToLibrary));
-        handle = (void*)LoadLibraryW(path.getData());
-    }
-    DynamicLibrary::~DynamicLibrary()
-    {
-        if (handle) FreeLibrary((HMODULE)handle); handle = 0;
-    }
-    
-    // Load the given symbol out of this library
-    void * DynamicLibrary::loadSymbol(const char * nameInUTF8) const
-    {
-        if (handle && nameInUTF8)
-        {
-            return (void*)GetProcAddress((HMODULE)handle, nameInUTF8);
-        }
-        return 0;
-    }
-    // Get the platform expected file name for the given library name
-    void DynamicLibrary::getPlatformName(const char * libraryName, char * outputName)
-    {
-        if (!libraryName || !outputName) return;
-        strcpy(outputName, libraryName);
-        strcat(outputName, ".dll"); // On windows, it's the most common name
     }
 }
 
