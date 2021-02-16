@@ -44,7 +44,7 @@
 
 // Don't test against Linux and Mac each time we need a Posix system
 #if (_LINUX == 1) || (_MAC == 1)
-#define _POSIX 1
+    #define _POSIX 1
 #endif
 
 
@@ -127,14 +127,16 @@
 
 
 #if defined(_WIN32) || defined(_POSIX)
-#include <limits.h>
-#include <stdlib.h>
-#include <memory.h>
-#include <new>
-#include <stdarg.h>
-#include <stdio.h>
-#include <string.h>
-#include <wchar.h>
+    #include <limits.h>
+    #include <stdlib.h>
+    #include <memory.h>
+    #include <new>
+    #include <stdarg.h>
+    #include <stdio.h>
+    #include <string.h>
+    #include <wchar.h>
+#else
+    #define InlinePlatformCode
 #endif
 
 #ifdef _WIN32
@@ -222,36 +224,36 @@
     #include <netdb.h>
     #include <stdarg.h>
 
-    	#ifndef DontWantUINT8
-		typedef unsigned char uint8;
-	#endif
-	#ifndef DontWantUINT32
-		typedef unsigned int uint32;
-	#endif
-	#ifndef DontWantUINT16
-		typedef unsigned short uint16;
-	#endif
+    #ifndef DontWantUINT8
+        typedef unsigned char uint8;
+    #endif
+    #ifndef DontWantUINT32
+        typedef unsigned int uint32;
+    #endif
+    #ifndef DontWantUINT16
+        typedef unsigned short uint16;
+    #endif
 
-	#ifndef DontWantUINT64
-		typedef unsigned long long uint64;
-        #endif
+    #ifndef DontWantUINT64
+        typedef unsigned long long uint64;
+    #endif
 
-	#ifndef DontWantINT8
-		typedef signed char int8;
-	#endif
-	#ifndef DontWantINT32
-		typedef signed int int32;
-	#endif
-	#ifndef DontWantINT16
-		typedef signed short int16;
-	#endif
+    #ifndef DontWantINT8
+        typedef signed char int8;
+    #endif
+    #ifndef DontWantINT32
+        typedef signed int int32;
+    #endif
+    #ifndef DontWantINT16
+        typedef signed short int16;
+    #endif
 
-	#ifndef DontWantINT64
-		typedef long long int64;
-	#endif
-        #ifndef DontWantNativeInt
-		typedef intptr_t nativeint;
-	#endif
+    #ifndef DontWantINT64
+        typedef long long int64;
+    #endif
+    #ifndef DontWantNativeInt
+        typedef intptr_t nativeint;
+    #endif
 
     #define PF_LLD  "%lld"
     #define PF_LLU  "%llu"
@@ -265,11 +267,11 @@
 #else
     // Prevent the types.h file to define the fd_set type (stupid definition by the way)
     #define __USE_W32_SOCKETS
-	#include <stdio.h>
-	#include <time.h>
-	#include <stdlib.h>
-	#include <string.h>
-	#include <wchar.h>
+    #include <stdio.h>
+    #include <time.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #include <wchar.h>
     #include "pthreadRTOS.h"
     #include "lwip/sockets.h"
 
@@ -281,36 +283,36 @@
     #include "lwip/debug.h"
 
     #include "socket_map.h"
-	#include "bsp/inc/hw_types.h"
-	#include "driverlib/rom_map.h"
-	#include "driverlib/interrupt.h"
+    #include "bsp/inc/hw_types.h"
+    #include "driverlib/rom_map.h"
+    #include "driverlib/interrupt.h"
 
 
-	#ifndef DontWantUINT8
-		typedef unsigned char uint8;
-	#endif
-	#ifndef DontWantUINT32
-		typedef unsigned int uint32;
-	#endif
-	#ifndef DontWantUINT16
-		typedef unsigned short uint16;
-	#endif
+    #ifndef DontWantUINT8
+        typedef unsigned char uint8;
+    #endif
+    #ifndef DontWantUINT32
+        typedef unsigned int uint32;
+    #endif
+    #ifndef DontWantUINT16
+        typedef unsigned short uint16;
+    #endif
 
-	#ifndef DontWantUINT64
+    #ifndef DontWantUINT64
         typedef unsigned long long uint64;
     #endif
 
-	#ifndef DontWantINT8
-		typedef signed char int8;
-	#endif
-	#ifndef DontWantINT32
-		typedef signed int int32;
-	#endif
-	#ifndef DontWantINT16
-		typedef signed short int16;
-	#endif
+    #ifndef DontWantINT8
+        typedef signed char int8;
+    #endif
+    #ifndef DontWantINT32
+        typedef signed int int32;
+    #endif
+    #ifndef DontWantINT16
+        typedef signed short int16;
+    #endif
 
-	#ifndef DontWantINT64
+    #ifndef DontWantINT64
         typedef long long int64;
     #endif
         #ifndef DontWantNativeInt
@@ -329,7 +331,7 @@
 
 #ifndef MQTTString
   #include <string>
-  #define MQTTString	std::string
+  #define MQTTString    std::string
 #endif
 #ifndef MQTTROString
   #if HasCPlusPlus17 == 1

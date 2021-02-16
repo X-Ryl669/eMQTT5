@@ -9,8 +9,6 @@ add_executable(MQTTc
     ClassPath/src/Time.cpp
     ClassPath/src/Socket.cpp
     ClassPath/src/LinuxSpecific.cpp
-    $<$<PLATFORM_ID:WIN32>:ClassPath/src/Windows.cpp>
-    $<$<NOT:$<PLATFORM_ID:WIN32>>:ClassPath/src/Posix.cpp>
 
     ClassPath/src/bstrlib.c)
 
@@ -23,8 +21,6 @@ add_executable(MQTTParsePacket
     ClassPath/src/Strings.cpp
     ClassPath/src/Time.cpp
     ClassPath/src/LinuxSpecific.cpp
-    $<$<PLATFORM_ID:WIN32>:ClassPath/src/Windows.cpp>
-    $<$<NOT:$<PLATFORM_ID:WIN32>>:ClassPath/src/Posix.cpp>
 
     ClassPath/src/bstrlib.c)
 
@@ -48,7 +44,6 @@ include_directories(ClassPath/include/)
 
 target_compile_definitions(MQTTc PUBLIC _DEBUG=$<CONFIG:Debug> 
                                         MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON> 
-                                        $<$<PLATFORM_ID:Linux>:_LINUX=1> 
                                         MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF> 
                                         MQTTUseTLS=$<AND:$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>,$<STREQUAL:${ENABLE_TLS},ON>>)
 

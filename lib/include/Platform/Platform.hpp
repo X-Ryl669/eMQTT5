@@ -39,6 +39,13 @@ namespace Platform
 #endif
     };
 
+#ifdef InlinePlatformCode
+    // When being build in embedded code, don't pay for a wrapper here, instead forward to the system's functions
+    inline void * malloc(size_t size)                   { return ::malloc(size); }
+    inline void * calloc(size_t a, size_t b)            { return ::calloc(a,b); }
+    inline void free(void * p)                          { return ::free(p);
+    inline void * realloc(void * p, size_t size)        { return ::realloc(p, size); }
+#else
     /** The simple malloc overload.
         If you need to use another allocator, you should define this method 
         @param size         Element size in bytes
@@ -67,6 +74,7 @@ namespace Platform
         @param size The required size of the new area in bytes
         @warning Realloc is intrinsically unsafe to use, since it can leak memory in most case, use safeRealloc instead */
     void * realloc(void * p, size_t size);
+#endif
 
     /** The safe realloc method.
         This method avoid allocating a zero sized byte array (like realloc(0, 0) does).

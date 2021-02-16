@@ -1,4 +1,8 @@
-add_library(eMQTT5 src/Network/Clients/MQTTClient.cpp)
+add_library(eMQTT5 
+            src/Network/Clients/MQTTClient.cpp
+            $<$<PLATFORM_ID:WIN32>:src/Platform/Windows.cpp>
+            $<$<NOT:$<PLATFORM_ID:WIN32>>:src/Platform/Posix.cpp>
+           )
 
 set_target_properties(eMQTT5 PROPERTIES
     CXX_STANDARD 11
@@ -12,7 +16,6 @@ ENDIF()
 
 target_compile_definitions(eMQTT5 PUBLIC _DEBUG=$<CONFIG:Debug> 
                                         MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON>
-                                        $<$<PLATFORM_ID:Linux>:_LINUX=1> 
                                         MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF> 
                                         MQTTUseTLS=$<AND:$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>,$<STREQUAL:${ENABLE_TLS},ON>>)
 
