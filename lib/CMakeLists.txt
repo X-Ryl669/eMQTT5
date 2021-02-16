@@ -1,7 +1,6 @@
 add_library(eMQTT5 
             src/Network/Clients/MQTTClient.cpp
             $<$<PLATFORM_ID:WIN32>:src/Platform/Windows.cpp>
-            $<$<NOT:$<PLATFORM_ID:WIN32>>:src/Platform/Posix.cpp>
            )
 
 set_target_properties(eMQTT5 PROPERTIES

@@ -47,6 +47,9 @@
     #define _POSIX 1
 #endif
 
+#ifndef _WIN32
+    #define InlinePlatformCode
+#endif
 
 
 #ifdef _WIN32
@@ -135,8 +138,6 @@
     #include <stdio.h>
     #include <string.h>
     #include <wchar.h>
-#else
-    #define InlinePlatformCode
 #endif
 
 #ifdef _WIN32
