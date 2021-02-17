@@ -9,6 +9,7 @@ add_executable(MQTTc
     ClassPath/src/Time.cpp
     ClassPath/src/Socket.cpp
     ClassPath/src/LinuxSpecific.cpp
+    ClassPath/src/Dump.cpp
 
     ClassPath/src/bstrlib.c)
 
@@ -21,6 +22,7 @@ add_executable(MQTTParsePacket
     ClassPath/src/Strings.cpp
     ClassPath/src/Time.cpp
     ClassPath/src/LinuxSpecific.cpp
+    ClassPath/src/Dump.cpp
 
     ClassPath/src/bstrlib.c)
 

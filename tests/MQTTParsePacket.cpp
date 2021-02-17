@@ -28,6 +28,29 @@ struct InitLogger {
 
 inline int asHex(char ch) { return ch >= '0' && ch <= '9' ? (ch - '0') : (ch >= 'a' && ch <= 'f' ? (ch - 'a' + 10) : (ch >= 'A' && ch <= 'F' ? (ch - 'A' + 10) : 0)); }
 
+struct ScopeFile
+{
+    FILE * f;
+    operator FILE *() const { return f; }
+    ScopeFile(const char * path) : f(fopen(path, "rb")) {}
+    ~ScopeFile() { if (f) fclose(f); }
+};
+
+bool readFile(const char * path, uint8 *& buffer, size_t & size)
+{
+    ScopeFile f(path);
+    if (!f) return false;
+    if (fseek(f, 0,  SEEK_END)) return false;
+    size = (size_t)ftell(f);
+    if (fseek(f, 0, SEEK_SET)) return false;
+
+    if (!size || size > 2048*1024) return false;
+    buffer = new uint8[size+1];
+    if (!buffer) return false;
+
+    int r = fread(buffer, 1, size, f);
+    return r == size;
+}
 
 int main(int argc, char ** argv)
 {
@@ -35,20 +58,30 @@ int main(int argc, char ** argv)
     // First convert the input from what it is to something we can parse
     if (argc == 1 || (argc == 2 && String("--help") == argv[1]))
     {
-        printf("MQTTv5 Packet Parser\nUsage is: %s 0x34 0xC3  or %s 12 23 45 AB CE or %s \"12ACBEC345353\"\n", argv[0], argv[0], argv[0]);
+        printf("MQTTv5 Packet Parser\nUsage is: %s 0x34 0xC3  or %s 12 23 45 AB CE or %s \"12ACBEC345353\" or %s -f fileToParse\n", argv[0], argv[0], argv[0], argv[0]);
         return 0; 
     }
-    // Concatenate input
-    String data;
-    for (int i = 1; i < argc; i++) data += argv[i];
-    String input = data.replacedAll("\"", "").replacedAll("0x", "").replacedAll(" ", "").replacedAll(",", "");
-    // Then convert to a memory block
-    uint8 * inBuffer = new uint8[input.getLength() / 2 + 1];
+
+    uint8 * inBuffer = 0;
     size_t inSize = 0;
-    for (int i = 0; i < input.getLength(); i+=2)
+    if (argc == 3 && String("-f") == argv[1]) 
     {
-       char hi = input[i], lo = input[i+1]; // This works even if out of buffer since default value is zero in that case;
-       inBuffer[inSize++] = (asHex(hi) << 4) | asHex(lo); 
+        if (!readFile(argv[2], inBuffer, inSize)) 
+            return fprintf(stderr, "Can't read the given file: %s\n", argv[2]);  
+    } 
+    else 
+    {
+        // Concatenate input
+        String data;
+        for (int i = 1; i < argc; i++) data += argv[i];
+        String input = data.replacedAll("\"", "").replacedAll("0x", "").replacedAll(" ", "").replacedAll(",", "");
+        // Then convert to a memory block
+        inBuffer = new uint8[input.getLength() / 2 + 1];
+        for (int i = 0; i < input.getLength(); i+=2)
+        {
+           char hi = input[i], lo = input[i+1]; // This works even if out of buffer since default value is zero in that case;
+           inBuffer[inSize++] = (asHex(hi) << 4) | asHex(lo); 
+        }
     }
     // Then try to parse it
     if (inSize < 2) return fprintf(stderr, "Bad packet size, minimum 2 bytes required\n");
