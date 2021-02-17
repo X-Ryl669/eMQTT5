@@ -1,7 +1,8 @@
 #ifndef hpp_CPP_Platform_CPP_hpp
 #define hpp_CPP_Platform_CPP_hpp
-// Types like size-t or NULL
-#include "../Types.hpp"
+
+// Types like size_t or NULL
+#include <Types.hpp>
 
 /** The platform specific declarations */
 namespace Platform

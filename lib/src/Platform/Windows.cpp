@@ -1,5 +1,5 @@
 // We need our declaration
-#include "../../include/Platform/Platform.hpp"
+#include <Platform/Platform.hpp>
 
 #ifdef _WIN32
 

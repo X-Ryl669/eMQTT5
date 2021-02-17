@@ -2,10 +2,10 @@
 #define hpp_CPP_MQTTClient_CPP_hpp
 
 // Configuration is done via macros
-#include "MQTTConfig.hpp"
+#include <Network/Clients/MQTTConfig.hpp>
 
 // We need protocol declaration for this client
-#include "../../Protocol/MQTT/MQTT.hpp"
+#include <Protocol/MQTT/MQTT.hpp>
 
 
 

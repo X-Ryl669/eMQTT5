@@ -1,7 +1,8 @@
 #ifndef hpp_StackHeapBuffer_hpp
 #define hpp_StackHeapBuffer_hpp
 
-#include "../Types.hpp"
+// We need types like ssize_t here
+#include <Types.hpp>
 
 namespace Platform
 {

@@ -1,5 +1,5 @@
 // We need our implementation
-#include "../../../include/Network/Clients/MQTT.hpp"
+#include <Network/Clients/MQTT.hpp>
 
 
 #if MQTTOnlyBSDSocket != 1
@@ -31,11 +31,11 @@
   #endif
 #endif
 // We need StackHeapBuffer to avoid stressing the heap allocator when it's not required
-#include "../../../include/Platform/StackHeapBuffer.hpp"
+#include <Platform/StackHeapBuffer.hpp>
 
 #if MQTTDumpCommunication == 1
   // We need hexDump
-  #include "../../../include/Utils/Dump.hpp"
+  #include "Utils/Dump.hpp"
 #endif
 
 // This is the maximum allocation that'll be performed on the stack before it's being replaced by heap allocation
