@@ -1,7 +1,11 @@
 add_library(eMQTT5 
             src/Network/Clients/MQTTClient.cpp
             $<$<PLATFORM_ID:WIN32>:src/Platform/Windows.cpp>
-           )
+)
+
+set_property(TARGET eMQTT5
+             PROPERTY POSITION_INDEPENDENT_CODE ON
+)
 
 set_target_properties(eMQTT5 PROPERTIES
     CXX_STANDARD 11
