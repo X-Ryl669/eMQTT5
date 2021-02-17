@@ -56,37 +56,38 @@
 #endif
 
 // The part below is for building only, it's made to generate a message so the configuration is visible at build time
-#if MQTTUseAuth == 1
-  #define CONF_AUTH "Auth_"
-#else
-  #define CONF_AUTH "_"
+#if _DEBUG == 1
+  #if MQTTUseAuth == 1
+    #define CONF_AUTH "Auth_"
+  #else
+    #define CONF_AUTH "_"
+  #endif
+  
+  #if MQTTDumpCommunication == 1
+    #define CONF_DUMP "Dump_"
+  #else
+    #define CONF_DUMP "_"
+  #endif
+  
+  #if MQTTAvoidValidation == 1
+    #define CONF_VALID "Check_"
+  #else
+    #define CONF_VALID "_"
+  #endif
+  
+  #if MQTTUseTLS == 1
+    #define CONF_TLS "TLS_"
+  #else
+    #define CONF_TLS "_"
+  #endif
+  
+  #if MQTTOnlyBSDSocket == 1
+    #define CONF_SOCKET "BSD"
+  #else
+    #define CONF_SOCKET "CP"
+  #endif
+  
+  #pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
 #endif
-
-#if MQTTDumpCommunication == 1
-  #define CONF_DUMP "Dump_"
-#else
-  #define CONF_DUMP "_"
-#endif
-
-#if MQTTAvoidValidation == 1
-  #define CONF_VALID "Check_"
-#else
-  #define CONF_VALID "_"
-#endif
-
-#if MQTTUseTLS == 1
-  #define CONF_TLS "TLS_"
-#else
-  #define CONF_TLS "_"
-#endif
-
-#if MQTTOnlyBSDSocket == 1
-  #define CONF_SOCKET "BSD"
-#else
-  #define CONF_SOCKET "CP"
-#endif
-
-#pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
-
 
 #endif
