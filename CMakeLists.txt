@@ -1,21 +1,18 @@
-cmake_minimum_required(VERSION 3.7)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.19)
+# set(CMAKE_VERBOSE_MAKEFILE 1) # for verbose mode
+PROJECT(eMQTT5)
 
-# Fix behavior of CMAKE_CXX_STANDARD when targeting macOS.
-if (POLICY CMP0025)
-  cmake_policy(SET CMP0025 NEW)
-endif ()
+ADD_LIBRARY(eMQTT5 STATIC
+	${CMAKE_CURRENT_SOURCE_DIR}/lib/src/Network/Clients/MQTTClient.cpp
+	)
+TARGET_COMPILE_FEATURES(eMQTT5 PUBLIC cxx_constexpr)
+# See compile features: http://www.cmake.org/cmake/help/v3.1/prop_gbl/CMAKE_CXX_KNOWN_FEATURES.html
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall")
+SET_PROPERTY(TARGET eMQTT5 PROPERTY CXX_STANDARD 20)
 
-project(eMQTT5)
-
-option(REDUCED_FOOTPRINT "Whether to enable reduced footprint for the client code" ON)
-option(CROSSPLATFORM_SOCKET "Whether to use cross plaftform socket code (this disable SSL)" OFF)
-option(ENABLE_TLS "Whether to enable TLS/SSL code (you'll need MBedTLS available)" OFF)
-
-if (CROSSPLATFORM_SOCKET STREQUAL OFF AND ENABLE_TLS STREQUAL ON)
-   message(WARNING "As of 06/28/2020, MBedTLS is not correctly CMake compatible and does not generate a mbedtls-config.cmake file. You'll need to apply the patch from my branch found in pull request #3465")  
-   find_package(mbedtls CONFIG REQUIRED)
-endif ()
-
-add_subdirectory(lib)
-add_subdirectory(tests)
-
+TARGET_INCLUDE_DIRECTORIES(eMQTT5
+	PRIVATE # Only this lib (but users of this lib) refers these private include
+		${CMAKE_CURRENT_SOURCE_DIR}/tests/ClassPath/include
+	PUBLIC  # Both this lib and users of this lib refer these public include
+		${CMAKE_CURRENT_SOURCE_DIR}/lib/include
+	)
