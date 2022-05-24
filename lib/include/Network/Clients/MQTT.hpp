@@ -78,6 +78,7 @@ namespace Network
             typedef Protocol::MQTT::V5::RetainHandling              RetainHandling;
             typedef Protocol::MQTT::V5::ReasonCodes                 ReasonCodes;
             typedef Protocol::MQTT::V5::SubscribeTopic              SubscribeTopic;
+            typedef Protocol::MQTT::V5::UnsubscribeTopic            UnsubscribeTopic;
 
             /** The error type returned by all methods */
             struct ErrorType
@@ -187,11 +188,21 @@ namespace Network
                 Upon message receiving, the MessageReceived callback will be called.
 
                 @param topics               The topics to subscribe to. This can be a filter in the form `a/b/prefix*` (prefix can be missing too)
-                                            The topics represent a chained list tha
+                                            The topics represent a chained list that are successively subscribed to.
                 @param properties           If provided those properties will be sent along the subscribe packet. Allowed properties for subscribe packet are: 
                                             Subscription Identifier, User property
                 @return An ErrorType */
             ErrorType subscribe(SubscribeTopic & topics, Properties * properties = nullptr);
+
+
+            /** Unsubscribe from some topics.
+
+                @param topics               The topics to unsubscribe from. This can be a filter in the form `a/b/prefix*` (prefix can be missing too)
+                                            @sa subscribe
+                @param properties           If provided those properties will be sent along the unsubscribe packet. Allowed properties for unsubscribe packet are: 
+                                            User property
+                @return An ErrorType */
+            ErrorType unsubscribe(UnsubscribeTopic & topics, Properties * properties = nullptr);
 
 
             /** Publish to a topic.

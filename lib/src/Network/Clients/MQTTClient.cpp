@@ -1195,6 +1195,58 @@ namespace Network { namespace Client {
         return MQTTv5::ErrorType::NetworkError;
     }
 
+    MQTTv5::ErrorType MQTTv5::unsubscribe(UnsubscribeTopic & topics, Properties * properties)
+    {
+        ScopedLock scope(impl->lock);
+        if (!impl->isOpen()) return ErrorType::NotConnected;
+        // If we are interrupting while receiving a packet, let's stop before make any more damage
+        if (impl->getLastPacketType() != Protocol::MQTT::V5::RESERVED)
+            return ErrorType::TranscientPacket;
+
+        Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::UNSUBSCRIBE> packet;
+        // Capture properties (to avoid copying them)
+        packet.props.capture(properties);
+
+#if MQTTAvoidValidation != 1
+        if (!packet.props.checkPropertiesFor(Protocol::MQTT::V5::UNSUBSCRIBE))
+            return ErrorType::BadProperties;
+#endif
+
+
+        packet.fixedVariableHeader.packetID = impl->allocatePacketID();
+        packet.payload.topics = &topics;
+
+        // Then send the packet
+        if (ErrorType ret = prepareSAR(packet))
+            return ret;
+
+        // Then extract the packet type
+        Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
+        if (type == Protocol::MQTT::V5::UNSUBACK)
+        {
+            Protocol::MQTT::V5::ROUnsubACKPacket rpacket;
+            int ret = impl->extractControlPacket(type, rpacket);
+            if (ret <= 0) return ErrorType::TranscientPacket;
+            
+            if (rpacket.fixedVariableHeader.packetID != packet.fixedVariableHeader.packetID)
+                return ErrorType::TranscientPacket;
+
+            // Then check reason codes
+            UnsubscribeTopic * topic = packet.payload.topics;
+            uint32 count = topic->count();
+            if (!rpacket.payload.data || rpacket.payload.size < count)
+                return ReasonCodes::ProtocolError;
+            for (uint32 i = 0; i < count; i++)
+                if (rpacket.payload.data[i] >= ReasonCodes::UnspecifiedError)
+                    return (ReasonCodes)rpacket.payload.data[i];
+
+            return ErrorType::Success;
+        }
+
+        return MQTTv5::ErrorType::NetworkError;
+    }
+
+
     // Enter publish cycle
     MQTTv5::ErrorType MQTTv5::enterPublishCycle(Protocol::MQTT::V5::ControlPacketSerializableImpl & publishPacket, bool sending)
     {
