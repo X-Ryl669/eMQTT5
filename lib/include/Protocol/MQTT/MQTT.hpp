@@ -2150,8 +2150,6 @@ namespace Protocol
                 bool                stackBased;
 
             public:
-                /** This give the size required for serializing this property header in bytes */
-                uint32 getSize() const { return topic.getSize() + 1 + (next ? next->getSize() : 0); }
 #if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return topic.check() && (next ? next->check() : true); }
@@ -2199,6 +2197,8 @@ namespace Protocol
                     /** The QoS flag */
                     BitField<uint8, 0, 2> QoS;
                 };
+                /** This give the size required for serializing this property header in bytes */
+                uint32 getSize() const { return topic.getSize() + 1 + (next ? next->getSize() : 0); }
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */
@@ -2258,6 +2258,8 @@ namespace Protocol
             /** The unsubscribe topic list */
             struct UnsubscribeTopic : public ScribeTopicBase
             {
+                /** This give the size required for serializing this property header in bytes */
+                uint32 getSize() const { return topic.getSize() + (next ? next->getSize() : 0); }
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */

@@ -164,6 +164,14 @@ int main(int argc, const char ** argv)
         {
             if (Network::Client::MQTTv5::ErrorType ret = client.eventLoop())
                 return fprintf(stderr, "Event loop failed with error: %d\n", (int)ret);
+
+        }
+
+        // Unsubscribe from the topic here 
+        Protocol::MQTT::V5::UnsubscribeTopic topic((const char*)subscribe, true);
+        if (Network::Client::MQTTv5::ErrorType ret = client.unsubscribe(topic, 0))
+        {
+            return fprintf(stderr, "Failed unsubscribing to %s with error: %d\n", (const char*)subscribe, (int)ret);
         }
 
         return 0;
