@@ -70,3 +70,16 @@ PUBLISH control packet (rlength: 30)
   Properties with length VBInt: 0
   Payload (length: 3)
 ``` 
+
+You can also give it a file containing the capture of the network payload:
+```
+$ ./MQTTParsePacket -f capture.dump
+Detected PUBLISH packet
+with size: 32
+PUBLISH control packet (rlength: 30)
+  Header: (type PUBLISH, retain 0, QoS 0, dup 0)
+  PUBLISH packet (id 0x0000): Str (24 bytes): status/YOLTyyvuWXPZ/logs
+  Properties with length VBInt: 0
+  Payload (length: 3)
+``` 
+
