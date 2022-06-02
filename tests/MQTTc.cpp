@@ -167,12 +167,20 @@ int main(int argc, const char ** argv)
 
         }
 
+#if MQTTUseUnsubscribe == 1
         // Unsubscribe from the topic here 
         Protocol::MQTT::V5::UnsubscribeTopic topic((const char*)subscribe, true);
         if (Network::Client::MQTTv5::ErrorType ret = client.unsubscribe(topic, 0))
         {
             return fprintf(stderr, "Failed unsubscribing to %s with error: %d\n", (const char*)subscribe, (int)ret);
         }
+        // Run the event loop once more to fetch the unsubscribe ACK (not absolutely required when leaving, but for sample code
+        if (Network::Client::MQTTv5::ErrorType ret = client.eventLoop())
+            return fprintf(stderr, "Event loop failed with error: %d\n", (int)ret);
+        
+        Network::Client::MQTTv5::ErrorType ret = client.getUnsubscribeResult();
+        fprintf(ret == 0 ? stdout : stderr, "Unsubscribe result: %d\n", (int)ret);
+#endif
 
         return 0;
     }

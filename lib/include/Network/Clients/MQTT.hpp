@@ -97,6 +97,7 @@ namespace Network
                     NetworkError        = -6,   //!< A communication with the network failed
                     NotConnected        = -7,   //!< Not connected to the server
                     TranscientPacket    = -8,   //!< A transcient packet was captured and need to be processed first
+                    WaitingForResult    = -9,   //!< The available answer is not ready yet, need to call again later on
                
                     UnknownError        = -1,   //!< An unknown error happened (or the developer was too lazy to create a valid entry in this table...)
                 };
@@ -195,6 +196,7 @@ namespace Network
             ErrorType subscribe(SubscribeTopic & topics, Properties * properties = nullptr);
 
 
+#if MQTTUseUnsubscribe == 1        
             /** Unsubscribe from some topics.
 
                 @param topics               The topics to unsubscribe from. This can be a filter in the form `a/b/prefix*` (prefix can be missing too)
@@ -204,6 +206,15 @@ namespace Network
                 @return An ErrorType */
             ErrorType unsubscribe(UnsubscribeTopic & topics, Properties * properties = nullptr);
 
+            /** Optional: Get the result of the last unsubscribe operation.
+                Unsubscribe is handled asynchronously (unline subscribe that is expected to be called before the event loop is run).
+                It's possible that a transcient publish packet arrives while the client is unsubscribing.
+             
+                So, typically, if you unsubscribe from a topic and want to get the result, you'll call this method until it returns an ReasonCode.
+    
+                @return A reason code on success or WaitingForResult if the result is not received yet */
+            ErrorType getUnsubscribeResult();
+#endif
 
             /** Publish to a topic.
                 @param topic                The topic to publish into.

@@ -11,6 +11,13 @@
     Default: 0 */
 #define MQTTUseAuth 0
 
+/** Unsubscribe support. Set to 1 if you intend to unsubscribe dynamically and partially from the broker.
+    Typically unused for the majority of embedded case where the client is subscribing all topics at once and let 
+    the broker unsubscribe by itself upon disconnection, this saves binary size if left disabled
+    Default: 0 */
+#define MQTTUseUnsubscribe 0
+
+
 /** Dump all MQTT communication. 
     This causes a large increase in binary size, induce an important latency cost, and lower the security by 
     displaying potentially private informations 
@@ -62,6 +69,13 @@
   #else
     #define CONF_AUTH "_"
   #endif
+
+  #if MQTTUseUnsubscribe == 1
+    #define CONF_UNSUB "Unsub_"
+  #else
+    #define CONF_UNSUB "_"
+  #endif
+
   
   #if MQTTDumpCommunication == 1
     #define CONF_DUMP "Dump_"
@@ -87,7 +101,7 @@
     #define CONF_SOCKET "CP"
   #endif
   
-  #pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
+  #pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_UNSUB CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
 #endif
 
 #endif

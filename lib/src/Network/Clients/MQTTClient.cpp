@@ -668,8 +668,13 @@ namespace Network { namespace Client {
         /** The publish current default identifier allocator */
         uint16                      publishCurrentId;    
         /** The keep alive delay in seconds */
-        uint16                      keepAlive;  
-
+        uint16                      keepAlive;
+#if MQTTUseUnsubscribe == 1        
+        /** The last unsubscribe id */
+        uint16                      unsubscribeId;
+        /** The last unsubscribe error code */
+        MQTTv5::ErrorType::Type     lastUnsubscribeError; 
+#endif
 
         /** The reading state. Because data on a TCP stream is 
             a stream, we have to remember what state we are currently following while parsing data */
@@ -698,6 +703,9 @@ namespace Network { namespace Client {
 
         Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
              : socket(0), brokerCert(brokerCert), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+#if MQTTUseUnsubscribe == 1        
+               unsubscribeId(0), lastUnsubscribeError(ErrorType::WaitingForResult),
+#endif
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
         ~Impl() { delete0(socket); ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
@@ -1209,12 +1217,16 @@ namespace Network { namespace Client {
         return MQTTv5::ErrorType::NetworkError;
     }
 
+#if MQTTUseUnsubscribe == 1        
     MQTTv5::ErrorType MQTTv5::unsubscribe(UnsubscribeTopic & topics, Properties * properties)
     {
         ScopedLock scope(impl->lock);
         if (!impl->isOpen()) return ErrorType::NotConnected;
         // If we are interrupting while receiving a packet, let's stop before make any more damage
         if (impl->getLastPacketType() != Protocol::MQTT::V5::RESERVED)
+            return ErrorType::TranscientPacket;
+        // If we are currently unsubscribing and still waiting for ACK, don't accept any other unsubscription
+        if (impl->unsubscribeId)
             return ErrorType::TranscientPacket;
 
         Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::UNSUBSCRIBE> packet;
@@ -1228,38 +1240,28 @@ namespace Network { namespace Client {
 
 
         packet.fixedVariableHeader.packetID = impl->allocatePacketID();
+        impl->unsubscribeId = packet.fixedVariableHeader.packetID; 
         packet.payload.topics = &topics;
 
         // Then send the packet
         if (ErrorType ret = prepareSAR(packet))
             return ret;
 
-        // Then extract the packet type
-        Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
-        if (type == Protocol::MQTT::V5::UNSUBACK)
-        {
-            Protocol::MQTT::V5::ROUnsubACKPacket rpacket;
-            int ret = impl->extractControlPacket(type, rpacket);
-            if (ret <= 0) return ErrorType::TranscientPacket;
-            
-            if (rpacket.fixedVariableHeader.packetID != packet.fixedVariableHeader.packetID)
-                return ErrorType::TranscientPacket;
-
-            // Then check reason codes
-            UnsubscribeTopic * topic = packet.payload.topics;
-            uint32 count = topic->count();
-            if (!rpacket.payload.data || rpacket.payload.size < count)
-                return ReasonCodes::ProtocolError;
-            for (uint32 i = 0; i < count; i++)
-                if (rpacket.payload.data[i] >= ReasonCodes::UnspecifiedError)
-                    return (ReasonCodes)rpacket.payload.data[i];
-
-            return ErrorType::Success;
-        }
-
-        return MQTTv5::ErrorType::NetworkError;
+        // Unsubscribe answer will be fetched later on, use getUnsubscribeResult if you are interested in that
+        return ErrorType::Success;
     }
+    
+    MQTTv5::ErrorType MQTTv5::getUnsubscribeResult()
+    {
+        ScopedLock scope(impl->lock);
+        if (!impl->isOpen()) return ErrorType::NotConnected;
+        if (impl->unsubscribeId) return ErrorType::WaitingForResult;
+        ErrorType ret = impl->lastUnsubscribeError;
 
+        impl->lastUnsubscribeError = ErrorType::WaitingForResult;
+        return ret;
+    }
+#endif
 
     // Enter publish cycle
     MQTTv5::ErrorType MQTTv5::enterPublishCycle(Protocol::MQTT::V5::ControlPacketSerializableImpl & publishPacket, bool sending)
@@ -1409,6 +1411,29 @@ namespace Network { namespace Client {
             impl->cb->messageReceived(packet.fixedVariableHeader.topicName, DynamicBinDataView(packet.payload.size, packet.payload.data), packet.fixedVariableHeader.packetID, packet.props);
             return enterPublishCycle(packet, false);
         }
+#if MQTTUseUnsubscribe == 1        
+        case Protocol::MQTT::V5::UNSUBACK:
+        {
+            Protocol::MQTT::V5::ROUnsubACKPacket rpacket;
+            int ret = impl->extractControlPacket(type, rpacket);
+            if (ret == 0) { impl->close(); return ErrorType::NotConnected; }
+            if (ret < 0) return ErrorType::NetworkError;
+            
+            if (rpacket.fixedVariableHeader.packetID != impl->unsubscribeId)
+                return ErrorType::NetworkError;
+
+            // Then check reason codes
+            uint32 count = rpacket.payload.size;
+            if (!rpacket.payload.data)
+                impl->lastUnsubscribeError = (ErrorType::Type)ReasonCodes::ProtocolError;
+            for (uint32 i = 0; i < count; i++)
+                if (rpacket.payload.data[i] >= ReasonCodes::UnspecifiedError)
+                    impl->lastUnsubscribeError = (ErrorType::Type)rpacket.payload.data[i];
+
+            // Done processing
+            impl->unsubscribeId = 0;
+        }
+#endif
         default: // Ignore all other packets currently 
             break;
         }
