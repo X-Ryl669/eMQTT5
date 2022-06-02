@@ -538,6 +538,9 @@ namespace Network { namespace Client {
             ::mbedtls_ssl_conf_ca_chain(&conf, &cacert, NULL);
             ::mbedtls_ssl_conf_authmode(&conf, brokerCert ? MBEDTLS_SSL_VERIFY_REQUIRED : MBEDTLS_SSL_VERIFY_NONE);
 
+            uint32_t ms = timeoutMs.tv_usec / 1000;
+            ::mbedtls_ssl_conf_read_timeout(&conf, ms < 50 ? 3000 : ms); 
+
             // Random number generator
             ::mbedtls_ssl_conf_rng(&conf, ::mbedtls_ctr_drbg_random, &entropySource);
             if (::mbedtls_ctr_drbg_seed(&entropySource, ::mbedtls_entropy_func, &entropy, NULL, 0)) 
@@ -563,13 +566,19 @@ namespace Network { namespace Client {
         {
             int ret = BaseSocket::connect(host, port, 0);
             if (ret) return ret;
+
+            // MBedTLS doesn't deal with natural socket timeout correctly, so let's fix that
+            struct timeval zeroTO = {};
+            if (::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &zeroTO, sizeof(zeroTO)) < 0) return -4;
+            if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &zeroTO, sizeof(zeroTO)) < 0) return -4;
+
             net.fd = socket;
 
             if (!buildConf(brokerCert))                                             return -8;
             if (::mbedtls_ssl_set_hostname(&ssl, host))                             return -9;
 
             // Set the method the SSL engine is using to fetch/send data to the other side
-            ::mbedtls_ssl_set_bio(&ssl, &net, ::mbedtls_net_send, ::mbedtls_net_recv, NULL);
+            ::mbedtls_ssl_set_bio(&ssl, &net, ::mbedtls_net_send, NULL, ::mbedtls_net_recv_timeout);
 
             ret = ::mbedtls_ssl_handshake(&ssl);
             if (ret != 0 && ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) 
@@ -611,6 +620,10 @@ namespace Network { namespace Client {
                     // Those means that we need to call again the read method
                     if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE)
                         continue;
+                    if (r == MBEDTLS_ERR_SSL_TIMEOUT) {
+                        errno = EWOULDBLOCK; // Remember it's a timeout
+                        return -1;
+                    }
                     return ret ? (int)ret : r; // Silent error here
                 }
                 ret += (uint32)r;
@@ -619,6 +632,7 @@ namespace Network { namespace Client {
 
             // This one is a non blocking call
             int nret = ::mbedtls_ssl_read(&ssl, (uint8*)&buffer[ret], maxLength - ret);
+            if (nret == MBEDTLS_ERR_SSL_TIMEOUT) return ret;
             return nret <= 0 ? nret : nret + ret;
         }
 
