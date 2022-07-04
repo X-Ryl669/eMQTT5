@@ -1134,6 +1134,12 @@ namespace Protocol
                 /** The visitor type */
                 uint8 type;
             
+                /** Used to avoid declaring an external variable when iterating properties */
+                PropertyType propType;
+                /** Used to avoid declaring an external variable when iterating properties */
+                uint32       offset;
+ 
+
                 MemMappedVisitor * getBase()
                 {
                     switch(type)
@@ -1182,35 +1188,45 @@ namespace Protocol
 //                inline T* as(T* const &) { return as<T>(); }
 
                 /** Mutate with the given type */
-                bool mutate(const uint8 type)
+                bool mutate(const uint8 type, const PropertyType prop)
                 {
                     switch(type)
                     {
-                    case 0: mutate< PODVisitor<uint8> >             (); return true;
-                    case 1: mutate< LittleEndianPODVisitor<uint16> >(); return true;
-                    case 2: mutate< LittleEndianPODVisitor<uint32> >(); return true;
-                    case 3: mutate< MappedVBInt >                   (); return true;
-                    case 4: mutate< DynamicBinDataView >            (); return true;
-                    case 5: mutate< DynamicStringView >             (); return true;
-                    case 6: mutate< DynamicStringPairView >         (); return true;
+                    case 0: mutate< PODVisitor<uint8> >             (prop); return true;
+                    case 1: mutate< LittleEndianPODVisitor<uint16> >(prop); return true;
+                    case 2: mutate< LittleEndianPODVisitor<uint32> >(prop); return true;
+                    case 3: mutate< MappedVBInt >                   (prop); return true;
+                    case 4: mutate< DynamicBinDataView >            (prop); return true;
+                    case 5: mutate< DynamicStringView >             (prop); return true;
+                    case 6: mutate< DynamicStringPairView >         (prop); return true;
                     default: this->type = type; return false;
                     }
                 }
 
                 template <typename T>
-                void mutate()
+                void mutate(const PropertyType prop)
                 {
                     // If the compiler stops here, it means you're trying to get a visitor for an unsupported type
                     // Only supported types are written above
                     type = PrivateRegistry::isValidType<T>::Value;
+                    propType = prop;
                     new (buffer) T();
                 }
 
+                /** Get the visitor property type */
+                PropertyType propertyType() const { return propType; }
+                /** Get the visitor property type */
+                void propertyType(const PropertyType prop) { propType = prop; }
+                /** Get the current iterator offset */
+                uint32 getOffset() const { return offset; }
+                /** Set the offset */
+                void setOffset(const uint32 offset) { this->offset = offset; }
+
                 /** By default, it's an invalid variant */
-                VisitorVariant() : type(7) {}
+                VisitorVariant() : type(7), propType(BadProperty), offset(0) {}
 
                 template <typename T>
-                VisitorVariant() : type(PrivateRegistry::isValidType<T>::Value) { new (buffer) T(); }
+                VisitorVariant() : type(PrivateRegistry::isValidType<T>::Value), propType(BadProperty), offset(0) { new (buffer) T(); }
 
                 ~VisitorVariant() {} // No destruction required here
             };
@@ -1254,7 +1270,7 @@ namespace Protocol
 
                     uint8 index = PrivateRegistry::invPropertyMap[propertyType];
                     if (index == PrivateRegistry::PropertiesCount) return false;
-                    return visitor.mutate(propertiesType[index]);
+                    return visitor.mutate(propertiesType[index], (PropertyType)propertyType);
                 }
 
             private:
@@ -2014,17 +2030,15 @@ namespace Protocol
                     uint32 r = v.readFrom(buffer, bufLength);
                     if (isError(r)) return BadData;
 
-                    PropertyType type = BadProperty;
-                    uint32 offset = 0;
                     VisitorVariant visitor;
-                    while (v.getProperty(visitor, type, offset))
+                    while (v.getProperty(visitor))
                     {
-                        if (type == DesiredProperty)
+                        if (visitor.propertyType() == DesiredProperty)
                         {
                             DynamicStringView * view = visitor.as< DynamicStringView >();
                             // Do something with view
                         }
-                        else if (type == SomeOtherProperty)
+                        else if (visitor.propertyType() == SomeOtherProperty)
                         {
                             auto pod = visitor.as< PODVisitor<uint8> >();
                             uint8 value = pod->getValue(); // Do something with value 
@@ -2042,18 +2056,18 @@ namespace Protocol
                     @param type     On output, will be filled with the given type or BadProperty if none found
                     @param offset   On output, will be filled to the offset in bytes to the next property
                     @return A pointer on a static instance (stored on TLS if WantThreadLocalStorage is defined) or 0 upon error */
-                bool getProperty(VisitorVariant & visitor, PropertyType & type, uint32 & offset) const
+                bool getProperty(VisitorVariant & visitor) const
                 {
-                    type = BadProperty;
+                    visitor.propertyType(BadProperty);
+                    const uint32 offset = visitor.getOffset();
                     if (offset >= (uint32)length || !buffer) return false;
                     // Deduce property type from the given byte
                     uint8 t = buffer[offset];
                     if (!MemMappedPropertyRegistry::getInstance().getVisitorForProperty(visitor, t)) return 0;
-                    type = (PropertyType)t;
                     // Then visit the property now
                     uint32 r = visitor.acceptBuffer(&buffer[offset + 1], (uint32)length - offset - 1);
                     if (isError(r)) return false;
-                    offset += r + 1;
+                    visitor.setOffset(offset + r + 1);
                     return true;
                 }
                 /** This give the size required for serializing this property header in bytes */
@@ -2087,11 +2101,10 @@ namespace Protocol
                 { 
                     out += MQTTStringPrintf("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
                     if (!(uint32)length) return;
-                    PropertyType type; uint32 offset = 0;
                     VisitorVariant visitor;
-                    while (getProperty(visitor, type, offset))
+                    while (getProperty(visitor))
                     {
-                        out += MQTTStringPrintf("%*sType %s\n", indent+2, "", PrivateRegistry::getPropertyName(type));
+                        out += MQTTStringPrintf("%*sType %s\n", indent+2, "", PrivateRegistry::getPropertyName(visitor.propertyType()));
                         visitor.dump(out, indent + 4);
                     }
                 }
@@ -2101,12 +2114,10 @@ namespace Protocol
                 bool checkPropertiesFor(const ControlPacketType type) const
                 {
                     if (!check()) return false;
-                    uint32 o = 0;
-                    PropertyType t = BadProperty;
                     VisitorVariant v;
-                    while (getProperty(v, t, o))
+                    while (getProperty(v))
                     {
-                        if (!isAllowedProperty(t, type)) return false;
+                        if (!isAllowedProperty(v.propertyType(), type)) return false;
                     }
                     return true;
                 }                

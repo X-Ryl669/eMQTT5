@@ -141,7 +141,7 @@ namespace Network { namespace Client {
             Utils::hexDump(packetDump, (const uint8*)buffer, length, 16, true, true);
             Protocol::MQTT::V5::FixedHeader header;
             header.raw = buffer[0];
-            Logger::log(Logger::Dump, "> Sending packet: %s(R:%d,Q:%d,D:%d)%s", Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup, (const char*)packetDump);
+            Logger::log(Logger::Dump, "> Sending packet: %s(R:%d,Q:%d,D:%d)%s", Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)(uint8)header.type), header.retain, header.QoS, header.dup, (const char*)packetDump);
 #endif
             return socket->sendReliably(buffer, (int)length, timeoutMs);
         }
@@ -238,7 +238,7 @@ namespace Network { namespace Client {
                 Utils::hexDump(packetDump, recvBuffer, available, 16, true, true);
                 Protocol::MQTT::V5::FixedHeader header;
                 header.raw = recvBuffer[0];
-                Logger::log(Logger::Dump, "< Received packet: %s(R:%d,Q:%d,D:%d)%s", Protocol::MQTT::V5::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)header.type), header.retain, header.QoS, header.dup, (const char*)packetDump);
+                Logger::log(Logger::Dump, "< Received packet: %s(R:%d,Q:%d,D:%d)%s", Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)(uint8)header.type), header.retain, header.QoS, header.dup, (const char*)packetDump);
 #endif
                 lastCommunication = (uint32)time(NULL);
                 return (int)available;
@@ -279,9 +279,9 @@ namespace Network { namespace Client {
             resetPacketReceivingState();
 
 #if MQTTDumpCommunication == 1
-            String out;
+            MQTTString out;
             packet.dump(out, 2);
-            Logger::log(Logger::Dump, "Received\n%s", (const char*)out);
+            Logger::log(Logger::Dump, "Received\n%.*s", MQTTStringGetLength(out), MQTTStringGetData(out));
 #endif
 
             return (int)r;
@@ -995,12 +995,10 @@ namespace Network { namespace Client {
                 DynamicStringView authMethod;
                 DynamicBinDataView authData;
 #endif
-                Protocol::MQTT::V5::PropertyType type = Protocol::MQTT::V5::BadProperty;
-                uint32 offset = 0;
                 Protocol::MQTT::V5::VisitorVariant visitor;
-                while (packet.props.getProperty(visitor, type, offset))
+                while (packet.props.getProperty(visitor))
                 {
-                    switch (type)
+                    switch (visitor.propertyType())
                     {
                     case Protocol::MQTT::V5::PacketSizeMax:
                     {
@@ -1058,18 +1056,15 @@ namespace Network { namespace Client {
                 // Try to find the auth method, and the auth data
                 DynamicStringView authMethod;
                 DynamicBinDataView authData;
-                uint32 offset = 0;
-
-                Protocol::MQTT::V5::PropertyType type = Protocol::MQTT::V5::BadProperty;
                 Protocol::MQTT::V5::VisitorVariant visitor;
-                while (packet.props.getProperty(visitor, type, offset) && (authMethod.length == 0 || authData.length == 0))
+                while (packet.props.getProperty(visitor) && (authMethod.length == 0 || authData.length == 0))
                 {
-                    if (type == Protocol::MQTT::V5::AuthenticationMethod)
+                    if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationMethod)
                     {
                         auto view = visitor.as< DynamicStringView >();
                         authMethod = *view;
                     }
-                    else if (type == Protocol::MQTT::V5::AuthenticationData)
+                    else if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationData)
                     {
                         auto data = visitor.as< DynamicBinDataView >();
                         authData = *data;
@@ -1129,18 +1124,15 @@ namespace Network { namespace Client {
                 // Try to find the auth method, and the auth data
                 DynamicStringView authMethod;
                 DynamicBinDataView authData;
-                uint32 offset = 0;
-
-                Protocol::MQTT::V5::PropertyType type = Protocol::MQTT::V5::BadProperty;
                 Protocol::MQTT::V5::VisitorVariant visitor;
-                while (packet.props.getProperty(visitor, type, offset) && (authMethod.length == 0 || authData.length == 0))
+                while (packet.props.getProperty(visitor) && (authMethod.length == 0 || authData.length == 0))
                 {
-                    if (type == Protocol::MQTT::V5::AuthenticationMethod)
+                    if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationMethod)
                     {
                         auto view = visitor.as< DynamicStringView >();
                         authMethod = *view;
                     }
-                    else if (type == Protocol::MQTT::V5::AuthenticationData)
+                    else if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationData)
                     {
                         auto data = visitor.as< DynamicBinDataView >();
                         authData = *data;
