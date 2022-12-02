@@ -1,0 +1,12 @@
+prefix="@CMAKE_INSTALL_PREFIX@"
+exec_prefix="${prefix}"
+libdir="${prefix}/lib"
+includedir="${prefix}/include/eMQTT5"
+
+Name: eMQTT5
+Description: @emqtt5desc@
+URL: @emqtt5url@
+Version: @emqtt5ver@
+Requires: @pc_req_public@
+Cflags: -I"${includedir}"
+Libs: -L"${libdir}" -l@lib1@

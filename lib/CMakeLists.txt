@@ -22,6 +22,16 @@ target_compile_definitions(eMQTT5 PUBLIC _DEBUG=$<CONFIG:Debug>
                                         MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF> 
                                         MQTTUseTLS=$<AND:$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>,$<STREQUAL:${ENABLE_TLS},ON>>)
 
+list(APPEND header_files 
+            include/Platform/Platform.hpp
+            include/Platform/StackHeapBuffer.hpp
+            include/Network/Clients/MQTT.hpp
+            include/Network/Clients/MQTTConfig.hpp
+            include/Protocol/MQTT/MQTT.hpp
+            include/Types.hpp)
+
+set_target_properties(eMQTT5 PROPERTIES PUBLIC_HEADER "${header_files}")
+
 IF (WIN32)
 ELSE()
   target_compile_options(eMQTT5 PUBLIC $<$<CONFIG:MinSizeRel>:-fno-rtti -ffunction-sections -fdata-sections>)
@@ -31,4 +41,7 @@ target_include_directories(eMQTT5 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include $<$
 
 install(TARGETS eMQTT5 
         ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib)
+        LIBRARY DESTINATION lib
+        PUBLIC_HEADER DESTINATION include/eMQTT5)
+
+install(FILES ${CMAKE_BINARY_DIR}/eMQTT5.pc DESTINATION lib/pkgconfig)
