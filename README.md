@@ -30,7 +30,7 @@ For many reasons:
 
 ## API Documentation
 
-You'll find the [client API documentation here](https://blog.cyril.by/en/documentation/emqtt5-doc).
+You'll find the [client API documentation here](https://blog.cyril.by/en/documentation/emqtt5-doc/emqtt5).
 
 There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/APIDoc.md). 
 
