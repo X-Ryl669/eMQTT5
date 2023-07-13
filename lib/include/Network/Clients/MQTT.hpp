@@ -226,7 +226,12 @@ namespace Network
                 @param properties           If provided those properties will be sent along the publish packet. Allowed properties for publish packet are: 
                                             Payload Format Indicator, Message Expiry Interval, Topic Alias, 
                                             Response topic, Correlation Data, Subscription Identifier, User property, Content Type
-                @return An ErrorType */
+                @return An ErrorType 
+                @note You can call this method anytime from anywhere (including from inside a messageReceived callback). However, you must observe the return type carefully
+                      If it is ErrorType::TranscientPacket, then this means that the publication failed and must be retried AFTER calling eventLoop, since a transcient 
+                      packet was received while waiting for packet's ACK. If you publish inside a messageReceived callback, this means that you must return from it first, 
+                      run the eventLoop again, THEN retry publishing (out of the messageReceived method, obviously). It would be probably easier to mutate a variable in the 
+                      messageReceived callback and check this variable in the code that's calling eventLoop instead so it can publish from here. */
             ErrorType publish(const char * topic, const uint8 * payload, const uint32 payloadLength, const bool retain = false, const QoSDelivery QoS = QoSDelivery::AtMostOne, 
                               const uint16 packetIdentifier = 0, Properties * properties = nullptr);
 
@@ -235,7 +240,9 @@ namespace Network
                 So you must call this method regularly to fetch any pending message and prevent the client from being disconnected from the server.
 
                 You'll likely call this in thread/task to avoid disrupting your main application flow.
-                It's safe to be called from any thread. */
+                It's safe to be called from any thread. This method will likely call MessageReceived::messageReceived callback upon receiving a message.
+
+                @warning Don't call eventLoop from your MessageReceived::messageReceived callback to avoid recursion. */
             ErrorType eventLoop();
 
             /** Disconnect from the server

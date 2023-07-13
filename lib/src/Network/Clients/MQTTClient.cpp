@@ -1300,11 +1300,13 @@ namespace Network { namespace Client {
                 if (type != next) return Protocol::MQTT::V5::ProtocolError;
 
                 int ret = impl->extractControlPacket(next, reply);
+                if (ret == -3) return ErrorType::TranscientPacket;
                 if (ret <= 0) return ErrorType::NetworkError;
 
                 // Ensure it's matching the packet ID
                 if (reply.fixedVariableHeader.packetID != packetID)
-                    return Protocol::MQTT::V5::ProtocolError;
+                    // Could be a protocol error, but this will be checked in the next call to eventLoop
+                    return ErrorType::TranscientPacket; 
                 
                 // Compute the expected next packet
                 next = Protocol::MQTT::Common::Helper::getNextPacketType(next);
