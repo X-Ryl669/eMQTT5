@@ -8,7 +8,7 @@ jobs:
   # Our basic build job
   build:
     docker:
-      - image: "debian:stretch"
+      - image: "debian:bookworm"
     steps:
       - run:
           name: Installing SSH and git
