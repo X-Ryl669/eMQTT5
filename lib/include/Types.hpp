@@ -91,7 +91,6 @@
     #include <arpa/inet.h>
     #include <dirent.h>
     #include <errno.h>
-    #include <execinfo.h>
     #include <fcntl.h>
     #include <netdb.h>
     #include <netinet/in.h>
