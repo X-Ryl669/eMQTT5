@@ -36,6 +36,15 @@ struct ScopeFile
     ~ScopeFile() { if (f) fclose(f); }
 };
 
+void hexDump(const uint8 * inBuffer, size_t inSize)
+{
+    for (size_t i = 0; i < inSize; i++)
+    {
+        if (!(i%16)) printf("\n%08X ", i);
+        printf("%02X ", inBuffer[i]);
+    }
+}
+
 bool readFile(const char * path, uint8 *& buffer, size_t & size)
 {
     ScopeFile f(path);
@@ -133,11 +142,7 @@ packet->dump(out);
 
     // Adding packet hexdump too is useful for debugging
     printf("\nFrom input buffer:");
-    for (size_t i = 0; i < inSize; i++)
-    {
-        if (!(i%16)) printf("\n%08X ", i);
-        printf("%02X ", inBuffer[i]);
-    }
+    hexDump(inBuffer, inSize);
     printf("\n");
     return 0;
 }

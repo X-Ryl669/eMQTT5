@@ -2971,7 +2971,16 @@ namespace Protocol
                 }
 
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sPayload (length: %u)", (int)indent, "", size);
+                    for (uint32 i = 0; i < size; i++)
+                    {
+                        if (!(i%16)) out+= MQTTStringPrintf("\n%*s", (int)indent + 2, "");
+                        out += MQTTStringPrintf("%02X ", data[i]);
+                    }
+                    out += "\n";
+                }
 #endif
                 PayloadWithData() : data(0), size(0) {}
                 ~PayloadWithData() { free0(data); size = 0; }
@@ -3011,7 +3020,16 @@ namespace Protocol
                 }
 
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sPayload (length: %u)", (int)indent, "", size);
+                    for (uint32 i = 0; i < size; i++)
+                    {
+                        if (!(i%16)) out+= MQTTStringPrintf("\n%*s", (int)indent + 2, "");
+                        out += MQTTStringPrintf("%02X ", data[i]);
+                    }
+                    out += "\n";
+                 }
 #endif
 
                 PayloadWithData() : data(0), size(0) {}
@@ -3369,6 +3387,7 @@ namespace Protocol
             typedef ControlPacket<DISCONNECT, true> RODisconnectPacket;
             typedef ControlPacket<PINGREQ>          PingReqPacket;
             typedef ControlPacket<PINGRESP>         PingRespPacket;
+
         }
     }
 }
