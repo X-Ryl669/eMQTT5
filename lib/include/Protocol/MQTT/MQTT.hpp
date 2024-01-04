@@ -1326,6 +1326,12 @@ namespace Protocol
                 virtual PropertyBase * clone() const = 0;
                 /** Suicide (walking the list is done in Properties::suicide) */
                 void suicide() { if (heapAllocated) delete this; }
+                /** Accept a visitor for this property */
+                virtual bool acceptVisitor(VisitorVariant & visitor) const
+                {
+                    if (!MemMappedPropertyRegistry::getInstance().getVisitorForProperty(visitor, type)) return false;
+                    return false;
+                }
                 /** Virtual destructor is required since we destruct virtually the chained list */
                 virtual ~PropertyBase() {}
             };
@@ -1387,10 +1393,48 @@ namespace Protocol
 
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value.value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    LittleEndianPODVisitor<T> * view = visitor.as< LittleEndianPODVisitor<T> >();
+                    if (!view) return false;
+                    return view->acceptBuffer((const uint8*)value.raw(), value.typeSize()) == value.typeSize();
+                }
 
                 /** The default constructor */
                 Property(const PropertyType type, T v = 0, const bool heap = false) : PropertyBaseImpl(type, value, heap), value(v) {}
             };
+
+            template <>
+            struct Property<uint8> Final : public PropertyBaseImpl
+            {
+                /** The property value, depends on the type */
+                GenericType<uint8>           value;
+
+#if MQTTDumpCommunication == 1
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    out += MQTTStringPrintf("%*s", indent+2, ""); out += (uint8)value; out += "\n";
+                }
+#endif
+
+                /** Clone this property */
+                PropertyBase * clone() const { return new Property((PropertyType)type, value.value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    PODVisitor<uint8> * view = visitor.as< PODVisitor<uint8> >();
+                    if (!view) return false;
+                    return view->acceptBuffer((const uint8*)value.raw(), value.typeSize()) == value.typeSize();
+                }
+
+                /** The default constructor */
+                Property(const PropertyType type, uint8 v = 0, const bool heap = false) : PropertyBaseImpl(type, value, heap), value(v) {}
+            };
+
 
             template<>
             struct Property<DynamicString> Final : public PropertyBase
@@ -1428,6 +1472,15 @@ namespace Protocol
 #endif
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    DynamicStringView * view = visitor.as<DynamicStringView>();
+                    if (!view) return false;
+                    *view = value;
+                    return true;
+                }
 
                 /** The default constructor */
                 Property(const PropertyType type, const DynamicString value = "", const bool heap = false) : PropertyBase(type, heap), value(value) {}
@@ -1470,6 +1523,15 @@ namespace Protocol
 
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    DynamicBinDataView * view = visitor.as<DynamicBinDataView>();
+                    if (!view) return false;
+                    *view = value;
+                    return true;
+                }
 
                 /** The default constructor */
                 Property(const PropertyType type, const DynamicBinaryData value = 0, const bool heap = false) : PropertyBase(type, heap), value(value) {}
@@ -1511,6 +1573,16 @@ namespace Protocol
 #endif
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    DynamicStringPairView * view = visitor.as<DynamicStringPairView>();
+                    if (!view) return false;
+                    view->key = value.key;
+                    view->value = value.value;
+                    return true;
+                }
 
                 /** The default constructor */
                 Property(const PropertyType type, const DynamicStringPair value, const bool heap = false) : PropertyBase(type, heap), value(value) {}
@@ -1553,6 +1625,15 @@ namespace Protocol
 #endif
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    DynamicStringView * view = visitor.as<DynamicStringView>();
+                    if (!view) return false;
+                    *view = value;
+                    return true;
+                }
 
                 /** The default constructor */
                 Property(const PropertyType type, const DynamicStringView value = "", const bool heap = false) : PropertyBase(type, heap), value(value) {}
@@ -1594,6 +1675,15 @@ namespace Protocol
 #endif
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    DynamicBinDataView * view = visitor.as<DynamicBinDataView>();
+                    if (!view) return false;
+                    *view = value;
+                    return true;
+                }
                 /** The default constructor */
                 Property(const PropertyType type, const DynamicBinDataView value = 0, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
@@ -1634,6 +1724,15 @@ namespace Protocol
 #endif
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    DynamicStringPairView * view = visitor.as<DynamicStringPairView>();
+                    if (!view) return false;
+                    *view = value;
+                    return true;
+                }
                 /** The default constructor */
                 Property(const PropertyType type, const DynamicStringPairView value, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
@@ -1676,6 +1775,14 @@ namespace Protocol
 
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+                /** Accept a visitor for this type */
+                bool acceptVisitor(VisitorVariant & visitor)
+                {
+                    if (!PropertyBase::acceptVisitor(visitor)) return false;
+                    MappedVBInt* view = visitor.as<MappedVBInt>();
+                    if (!view) return false;
+                    return view->acceptBuffer(value.value, value.size) == value.size;
+                }
 
                 /** The default constructor */
                 Property(const PropertyType type, const uint32 value = 0, const bool heap = false) : PropertyBase(type, heap), value(value) {}
@@ -1898,6 +2005,24 @@ namespace Protocol
                     }
                     return 0;
                 }
+                /** Fetch the i-th property with the given visitor.
+                    @note This is inefficient compared to other getProperty methods, since it's performing a O(N) search each call.
+                    @param visitor  The visitor will be mutated on the next property to view
+                    @return true if there's another property to visit */
+                bool getProperty(VisitorVariant & visitor) const
+                {
+                    visitor.propertyType(BadProperty);
+                    const uint32 offset = visitor.getOffset();
+                    const PropertyBase * u = getProperty((size_t)offset);
+                    if (!u) return false;
+                    uint32 length = u->getSize();
+
+                    // Then copy or take a view on the property value
+                    if (!u->acceptVisitor(visitor)) return false;
+                    visitor.setOffset(offset + 1);
+                    return true;
+                }
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return length.getSize() + (uint32)length; }
                 /** Copy the value into the given buffer.
@@ -2053,10 +2178,9 @@ namespace Protocol
                 /** The given input buffer */
                 const uint8 * buffer;
 
-                /** Fetch the i-th property
-                    @param type     On output, will be filled with the given type or BadProperty if none found
-                    @param offset   On output, will be filled to the offset in bytes to the next property
-                    @return A pointer on a static instance (stored on TLS if WantThreadLocalStorage is defined) or 0 upon error */
+                /** Fetch the i-th property with the given visitor
+                    @param visitor  The visitor will be mutated on the next property to view
+                    @return true if there's another property to visit */
                 bool getProperty(VisitorVariant & visitor) const
                 {
                     visitor.propertyType(BadProperty);
