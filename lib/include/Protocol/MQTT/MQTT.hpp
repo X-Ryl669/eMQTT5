@@ -14,7 +14,7 @@
     // - the string class has MQTTStringGetLength(MQTTString instance) method returning the array size of the string
     // - a hexadecimal dumping method
     // - a printf-like formatting function
- 
+
     // Feel free to define the string class and method to use beforehand if you want to use your own.
     // If none provided, we use's std::string class (or ClassPath's FastString depending on the environment)
     #ifndef MQTTStringPrintf
@@ -56,7 +56,7 @@ namespace Protocol
                 BadData         = 0xFFFFFFFF,   //!< Malformed data
                 NotEnoughData   = 0xFFFFFFFE,   //!< Not enough data
                 Shortcut        = 0xFFFFFFFD,   //!< Serialization shortcut used (not necessarly an error)
-                
+
                 MinErrorCode    = 0xFFFFFFFD,
             };
 
@@ -78,13 +78,13 @@ namespace Protocol
             template <typename T, int Offset, int Bits>
             struct BitField
             {
-                /** This is public to avoid undefined behavior while used in union */ 
+                /** This is public to avoid undefined behavior while used in union */
                 T value;
 
                 static_assert(Offset + Bits <= (int) sizeof(T) * 8, "Member exceeds bitfield boundaries");
                 static_assert(Bits < (int) sizeof(T) * 8, "Can't fill entire bitfield with one member");
 
-                /** Base constants are typed to T so we skip type conversion everywhere */ 
+                /** Base constants are typed to T so we skip type conversion everywhere */
                 static const T Maximum = (T(1) << Bits) - 1;
                 static const T Mask = Maximum << Offset;
 
@@ -100,7 +100,7 @@ namespace Protocol
             {
                 /** We have a getSize() method that gives the number of bytes requires to serialize this object */
                 virtual uint32 getSize() const = 0;
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least getSize() bytes long
                     @return The number of bytes used in the buffer */
@@ -109,7 +109,7 @@ namespace Protocol
                     @param buffer       A pointer to an allocated buffer
                     @param bufLength    The length of the buffer in bytes
                     @return The number of bytes read from the buffer, or a LocalError upon error (use isError() to test for it) */
-                virtual uint32 readFrom(const uint8 * buffer, uint32 bufLength) 
+                virtual uint32 readFrom(const uint8 * buffer, uint32 bufLength)
 #if MQTTClientOnlyImplementation == 1
                 {
                     return BadData;
@@ -121,7 +121,7 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 /** Dump the serializable to the given string */
                 virtual void dump(MQTTString & out, const int indent = 0) = 0;
-#endif 
+#endif
 
 #if MQTTAvoidValidation != 1
                 /** Check if this object is correct after deserialization */
@@ -130,7 +130,7 @@ namespace Protocol
                 /** Required destructor - Not virtual here, it's never deleted virtually */
                 ~Serializable() {}
             };
-            
+
             /** Empty serializable used for generic code to avoid useless specific case in packet serialization */
             struct EmptySerializable : public Serializable
             {
@@ -141,7 +141,7 @@ namespace Protocol
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*s%s\n", indent, "", "<none>"); }
 #endif
             };
-            
+
             /** Invalid serialization used as an escape path */
             struct Hidden InvalidData : public Serializable
             {
@@ -155,22 +155,22 @@ namespace Protocol
                 bool check() const { return false; }
 #endif
             };
-            
-            
+
+
             /** The visitor that'll be called with the relevant value */
             struct MemMappedVisitor
             {
                 /** Accept the given buffer */
-                virtual uint32 acceptBuffer(const uint8 * buffer, const uint32 bufLength) = 0; 
+                virtual uint32 acceptBuffer(const uint8 * buffer, const uint32 bufLength) = 0;
                 // All visitor will have a getValue() method, but the returned type depends on the visitor and thus,
                 // can not be declared polymorphically
 #if MQTTDumpCommunication == 1
-                virtual void dump(MQTTString & out, const int indent = 0) 
-                { 
+                virtual void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*s", (int)indent, "");
                     // Voluntary incomplete
                 }
-#endif                
+#endif
 
                 /** Default destructor */
                 virtual ~MemMappedVisitor() {}
@@ -178,13 +178,13 @@ namespace Protocol
 
             /** Plumbing code for simple visitor pattern to avoid repetitive code in this file */
             template <typename T>
-            struct SerializableVisitor : public MemMappedVisitor 
+            struct SerializableVisitor : public MemMappedVisitor
             {
                 T & getValue() { return *static_cast<T*>(this); }
-                operator T& () { return getValue(); } 
+                operator T& () { return getValue(); }
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     static_cast<T*>(this)->dump(out, indent);
                 }
 #endif
@@ -199,18 +199,18 @@ namespace Protocol
                 T value;
                 T & getValue() { return value; }
 
-                operator T& () { return getValue(); } 
+                operator T& () { return getValue(); }
                 PODVisitor(const T value = 0) : value(value) {}
 
-                uint32 acceptBuffer(const uint8 * buffer, const uint32 bufLength) 
-                { 
+                uint32 acceptBuffer(const uint8 * buffer, const uint32 bufLength)
+                {
                     if (bufLength < sizeof(value)) return NotEnoughData;
-                    memcpy(&value, buffer, sizeof(value)); 
-                    return sizeof(value); 
+                    memcpy(&value, buffer, sizeof(value));
+                    return sizeof(value);
                 }
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     MemMappedVisitor::dump(out, indent);
                     out += getValue();
                     out += "\n";
@@ -218,7 +218,7 @@ namespace Protocol
 #endif
 
             };
-        
+
             /** Plumbing code for simple visitor pattern to avoid repetitive code in this file */
             template <typename T>
             struct LittleEndianPODVisitor : public MemMappedVisitor
@@ -226,19 +226,19 @@ namespace Protocol
                 T value;
                 T & getValue() { return value; }
 
-                operator T& () { return getValue(); } 
+                operator T& () { return getValue(); }
                 LittleEndianPODVisitor(const T value = 0) : value(value) {}
 
-                uint32 acceptBuffer(const uint8 * buffer, const uint32 bufLength) 
-                { 
+                uint32 acceptBuffer(const uint8 * buffer, const uint32 bufLength)
+                {
                     if (bufLength < sizeof(value)) return NotEnoughData;
-                    memcpy(&value, buffer, sizeof(value)); 
+                    memcpy(&value, buffer, sizeof(value));
                     value = BigEndian(value);
-                    return sizeof(value); 
+                    return sizeof(value);
                 }
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     MemMappedVisitor::dump(out, indent);
                     out += getValue();
                     out += "\n";
@@ -255,11 +255,11 @@ namespace Protocol
                 /** The string length in bytes */
                 uint16 length;
                 char   data[];
-                
+
                 /** Call this method to read the structure when it's casted from the network buffer */
                 void swapNetwork() { length = BigEndian(length); }
             };
-            
+
             /** A string that's memory managed itself */
             struct DynamicString Final : public Serializable
             {
@@ -270,7 +270,7 @@ namespace Protocol
 
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return (uint32)length + 2; }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
@@ -295,7 +295,7 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
 #endif
-                
+
                 /** Default constructor */
                 DynamicString() : length(0), data(0) {}
                 /** Construct from a text */
@@ -324,7 +324,7 @@ namespace Protocol
                 void from(const char * str, const size_t len = 0) { this->~DynamicString(); length = len ? len : (strlen(str)+1); data = (char*)Platform::malloc(length); memcpy(data, str, length); data[length - 1] = 0; }
 
             };
-            
+
             /** A dynamic string pair */
             struct DynamicStringPair Final : public Serializable
             {
@@ -332,10 +332,10 @@ namespace Protocol
                 DynamicString key;
                 /** The value used for the pair */
                 DynamicString value;
-                
+
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return key.getSize() + value.getSize(); }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least getSize() bytes long
                     @return The number of bytes used in the buffer */
@@ -376,11 +376,11 @@ namespace Protocol
                 /** The data length in bytes */
                 uint16 length;
                 uint8  data[];
-                
+
                 /** Call this method to read the structure when it's casted from the network buffer */
                 void swapNetwork() { length = BigEndian(length); }
             };
-            
+
             /** A dynamic binary data, with self managed memory */
             struct DynamicBinaryData Final : public Serializable
             {
@@ -391,7 +391,7 @@ namespace Protocol
 
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return (uint32)length + 2; }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
@@ -432,8 +432,8 @@ namespace Protocol
 
 
 
-            /** A read only dynamic string view. 
-                This is used to avoid copying a string buffer when only a pointer is required. 
+            /** A read only dynamic string view.
+                This is used to avoid copying a string buffer when only a pointer is required.
                 This string can be mutated to many buffer but no modification is done to the underlying array of chars */
             struct DynamicStringView Final : public Serializable, public SerializableVisitor<DynamicStringView>
             {
@@ -444,7 +444,7 @@ namespace Protocol
 
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return (uint32)length + 2; }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
@@ -456,7 +456,7 @@ namespace Protocol
                     @warning This method capture a pointer on the given buffer so it must outlive this object when being called.
                              Don't use this method if buffer is a temporary data. */
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
-                {   
+                {
                     if (bufLength < 2) return NotEnoughData;
                     uint16 size = 0; memcpy(&size, buffer, 2); length = BigEndian(size);
                     if ((uint32)(length+2) > bufLength) return NotEnoughData;
@@ -503,7 +503,7 @@ namespace Protocol
             };
 
             /** A dynamic string pair view.
-                This is used to avoid copying a string buffer when only a pointer is required. 
+                This is used to avoid copying a string buffer when only a pointer is required.
                 This string can be mutated to many buffer but no modification is done to the underlying array of chars */
             struct DynamicStringPairView Final : public Serializable, public SerializableVisitor<DynamicStringPairView>
             {
@@ -511,10 +511,10 @@ namespace Protocol
                 DynamicStringView key;
                 /** The value used for the pair */
                 DynamicStringView value;
-                
+
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return key.getSize() + value.getSize(); }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least getSize() bytes long
                     @return The number of bytes used in the buffer */
@@ -531,7 +531,7 @@ namespace Protocol
                     if (isError(s)) return s;
                     return s+o;
                 }
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return key.check() && value.check(); }
 #endif
@@ -548,8 +548,8 @@ namespace Protocol
                 DynamicStringPairView(DynamicStringPair && other) : key(std::move(other.key)), value(std::move(other.value)) { }
 #endif
             };
-            
-            /** A read only dynamic dynamic binary data, without self managed memory. 
+
+            /** A read only dynamic dynamic binary data, without self managed memory.
                 This is used to avoid copying a binary data buffer when only a pointer is required. */
             struct DynamicBinDataView Final : public Serializable, public SerializableVisitor<DynamicBinDataView>
             {
@@ -560,7 +560,7 @@ namespace Protocol
 
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return (uint32)length + 2; }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
@@ -572,7 +572,7 @@ namespace Protocol
                     @warning This method capture a pointer on the given buffer so it must outlive this object when being called.
                              Don't use this method if buffer is a temporary data. */
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
-                {   
+                {
                     if (bufLength < 2) return NotEnoughData;
                     uint16 size = 0; memcpy(&size, buffer, 2); length = BigEndian(size);
                     if ((uint32)(length+2) > bufLength) return NotEnoughData;
@@ -586,13 +586,13 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
-                
+
                 /** Construct from a memory block */
                 DynamicBinDataView(const uint16 length = 0, const uint8 * block = 0) : length(length), data(block) { }
                 /** Copy constructor */
                 DynamicBinDataView(const DynamicBinaryData & other) : length(other.length), data(other.data) { }
 
-            
+
                 /** Capture from a dynamic string here.
                     Beware of this method as the source must outlive this instance */
                 DynamicBinDataView & operator = (const DynamicBinaryData & source) { length = source.length; data = source.data; return *this; }
@@ -607,11 +607,11 @@ namespace Protocol
                 It's always stored encoded as a network version */
             struct VBInt Final : public Serializable
             {
-                enum 
-                { 
+                enum
+                {
                     MaxSizeOn1Byte  = 127,
                     MaxSizeOn2Bytes = 16383,
-                    MaxSizeOn3Bytes = 2097151, 
+                    MaxSizeOn3Bytes = 2097151,
                     MaxPossibleSize = 268435455, //!< The maximum possible size
                 };
 
@@ -624,7 +624,7 @@ namespace Protocol
                 };
                 /** The actual used size for transmitting the value, in bytes */
                 uint16  size;
-                
+
                 /** Set the value. This algorithm is 26% faster compared to the basic method shown in the standard */
                 VBInt & operator = (uint32 other)
                 {
@@ -662,7 +662,7 @@ namespace Protocol
                     }
                     return o;
                 }
-                
+
                 /** Check if the value is correct */
                 inline bool checkImpl() const
                 {
@@ -673,7 +673,7 @@ namespace Protocol
 #endif
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return size; }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
@@ -683,13 +683,14 @@ namespace Protocol
                     @return The number of bytes read from the buffer, or BadData upon error */
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
-                    for (size = 0; size < 4;)
+                    for (size = 0;;)
                     {
                         if ((uint32)(size+1) > bufLength) return NotEnoughData;
                         value[size] = buffer[size];
                         if (value[size++] < 0x80) break;
+                        if (size == 4) return BadData;
                     }
-                    return size < 4 ? size : (uint32)BadData;
+                    return size;
                 }
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sVBInt: %u\n", (int)indent, "", (uint32)*this); }
@@ -707,10 +708,10 @@ namespace Protocol
             {
                 /** Get the value from this mapped variable byte integer
                     @param buffer       A pointer to the buffer to read from
-                    @param bufLength    The length of the buffer to read from 
+                    @param bufLength    The length of the buffer to read from
                     @return the number of bytes used in the buffer */
                 uint32 acceptBuffer(const uint8 * buffer, const uint32 bufLength)
-                {  
+                {
                     uint32 size = 0; uint32 & o = getValue(); o = 0;
                     for (size = 0; size < 4 && size < bufLength; )
                     {
@@ -734,7 +735,7 @@ namespace Protocol
                 }
             };
 
-            
+
 
 
             /** The control packet type.
@@ -777,26 +778,26 @@ namespace Protocol
                 }
             };
         }
-    
+
         /** The version 5 for this protocol (OASIS MQTTv5 http://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html ) */
         namespace V5
         {
             // Bring shared types here
             using namespace Protocol::MQTT::Common;
-            
+
             /** A generic type erasure class to minimize different code dealing with types */
             struct GenericTypeBase
             {
                 virtual uint32 typeSize() const = 0;
-                /** From network and To network are supposed to be called in succession 
-                    leading to the same state so they are both const even if individually, they modify the value */ 
+                /** From network and To network are supposed to be called in succession
+                    leading to the same state so they are both const even if individually, they modify the value */
                 virtual void swapNetwork() const = 0;
                 virtual void * raw() = 0;
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 bool check() const { return true; }
 #endif
             };
-            /** A globally used GenericType that's there to minimize the number of generic code 
+            /** A globally used GenericType that's there to minimize the number of generic code
                 that needs to be specialized by the compiler */
             template <typename T>
             struct GenericType : public GenericTypeBase
@@ -889,7 +890,7 @@ namespace Protocol
 
                 };
             };
-            
+
             struct FixedHeaderBase
             {
                 uint8 typeAndFlags;
@@ -900,10 +901,10 @@ namespace Protocol
 #endif
 #if MQTTDumpCommunication == 1
                 virtual void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type %s, no flags)\n", (int)indent, "", Helper::getControlPacketName(getType())); }
-#endif    
+#endif
 
                 FixedHeaderBase(const ControlPacketType type, const uint8 flags) : typeAndFlags(((uint8)type) << 4 | (flags & 0xF)) {}
-                ~FixedHeaderBase() {} // Not virtual here to avoid generating 
+                ~FixedHeaderBase() {} // Not virtual here to avoid generating
             };
 
             /** The common format for the fixed header type */
@@ -915,15 +916,15 @@ namespace Protocol
 
                 FixedHeaderType() : FixedHeaderBase(type, flags) {}
             };
-            
+
             /** The only header where flags have a meaning is for Publish operation */
             template <>
             struct FixedHeaderType<PUBLISH, 0> Final : public FixedHeaderBase
-            {                
+            {
                 bool isDup()     const { return typeAndFlags & 0x8; }
                 bool isRetain()  const { return typeAndFlags & 0x1; }
                 uint8 getQoS()   const { return (typeAndFlags & 0x6) >> 1; }
-                
+
                 void setDup(const bool e)       { typeAndFlags = (typeAndFlags & ~0x8) | (e ? 8 : 0); }
                 void setRetain(const bool e)    { typeAndFlags = (typeAndFlags & ~0x1) | (e ? 1 : 0); }
                 void setQoS(const uint8 e)      { typeAndFlags = (typeAndFlags & ~0x6) | (e < 3 ? (e << 1) : 0); }
@@ -937,7 +938,7 @@ namespace Protocol
                 FixedHeaderType(const uint8 flags = 0) : FixedHeaderBase(PUBLISH, flags) {}
                 FixedHeaderType(const bool dup, const uint8 QoS, const bool retain) : FixedHeaderBase(PUBLISH, (dup ? 8 : 0) | (retain ? 1 : 0) | (QoS < 3 ? (QoS << 1) : 0)) {}
             };
-            
+
             /** The possible header types */
             typedef FixedHeaderType<CONNECT,    0> ConnectHeader;
             typedef FixedHeaderType<CONNACK,    0> ConnectACKHeader;
@@ -1004,10 +1005,10 @@ namespace Protocol
                 WildcardSubAvailable    = 0x28, //!< Wildcard Subscription Available
                 SubIDAvailable          = 0x29, //!< Subscription Identifier Available
                 SharedSubAvailable      = 0x2A, //!< Shared Subscription Available
-                
-                
-                
-                
+
+
+
+
                 MaxUsedPropertyType,            //!< Used as a gatekeeper for the knowing the maximum value for the properties
             };
 
@@ -1016,13 +1017,13 @@ namespace Protocol
                 template <typename T> struct SizeOf { enum { Size = sizeof(T) }; };
 
                 // Not using variadic template here since this can be built without C++11
-                template <typename T, typename U> 
+                template <typename T, typename U>
                 struct MaxSize { enum { Size = sizeof(T) > (size_t)U::Size ? sizeof(T) : (size_t)U::Size }; };
 
                 struct MaxVisitorsSize
                 {
-                    enum { Size = MaxSize<PODVisitor<uint8>, 
-                        MaxSize<LittleEndianPODVisitor<uint16>, 
+                    enum { Size = MaxSize<PODVisitor<uint8>,
+                        MaxSize<LittleEndianPODVisitor<uint16>,
                         MaxSize<LittleEndianPODVisitor<uint32>,
                         MaxSize<MappedVBInt,
                         MaxSize<DynamicBinDataView,
@@ -1046,44 +1047,44 @@ namespace Protocol
                 template<> struct isValidType< DynamicBinDataView             > { enum { Value = 4 }; };
                 template<> struct isValidType< DynamicStringView              > { enum { Value = 5 }; };
                 template<> struct isValidType< DynamicStringPairView          > { enum { Value = 6 }; };
-                
+
 
                 enum { PropertiesCount = 27 };
                 static const uint8 invPropertyMap[MaxUsedPropertyType] =
                 {
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
                      0, // PayloadFormat           ,
                      1, // MessageExpiryInterval   ,
                      2, // ContentType             ,
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
                      3, // ResponseTopic           ,
                      4, // CorrelationData         ,
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
                      5, // SubscriptionID          ,
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
                      6, // SessionExpiryInterval   ,
                      7, // AssignedClientID        ,
                      8, // ServerKeepAlive         ,
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
                      9, // AuthenticationMethod    ,
                     10, // AuthenticationData      ,
                     11, // RequestProblemInfo      ,
                     12, // WillDelayInterval       ,
                     13, // RequestResponseInfo     ,
                     14, // ResponseInfo            ,
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
                     15, // ServerReference         ,
-                    PropertiesCount, // BadProperty,  
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
+                    PropertiesCount, // BadProperty,
                     16, // ReasonString            ,
-                    PropertiesCount, // BadProperty,  
+                    PropertiesCount, // BadProperty,
                     17, // ReceiveMax              ,
                     18, // TopicAliasMax           ,
                     19, // TopicAlias              ,
@@ -1099,14 +1100,14 @@ namespace Protocol
                 /** Get the property name for a given property type */
                 static const char * getPropertyName(const uint8 propertyType)
                 {
-                    static const char* propertyMap[PrivateRegistry::PropertiesCount] = 
-                    { 
+                    static const char* propertyMap[PrivateRegistry::PropertiesCount] =
+                    {
                         "PayloadFormat", "MessageExpiryInterval", "ContentType", "ResponseTopic", "CorrelationData",
-                        "SubscriptionID", "SessionExpiryInterval", "AssignedClientID", "ServerKeepAlive", 
-                        "AuthenticationMethod", "AuthenticationData", "RequestProblemInfo", "WillDelayInterval", 
-                        "RequestResponseInfo", "ResponseInfo", "ServerReference", "ReasonString", "ReceiveMax", 
-                        "TopicAliasMax", "TopicAlias", "QoSMax", "RetainAvailable", "UserProperty", "PacketSizeMax", 
-                        "WildcardSubAvailable", "SubIDAvailable", "SharedSubAvailable", 
+                        "SubscriptionID", "SessionExpiryInterval", "AssignedClientID", "ServerKeepAlive",
+                        "AuthenticationMethod", "AuthenticationData", "RequestProblemInfo", "WillDelayInterval",
+                        "RequestResponseInfo", "ResponseInfo", "ServerReference", "ReasonString", "ReceiveMax",
+                        "TopicAliasMax", "TopicAlias", "QoSMax", "RetainAvailable", "UserProperty", "PacketSizeMax",
+                        "WildcardSubAvailable", "SubIDAvailable", "SharedSubAvailable",
                     };
                     if (propertyType >= MaxUsedPropertyType) return 0;
                     uint8 index = PrivateRegistry::invPropertyMap[propertyType];
@@ -1114,17 +1115,17 @@ namespace Protocol
                     return propertyMap[index];
                 }
             }
-            
+
             /** Avoid storing many instance of static visitors in BSS and memory.
                 Instead, use a variant and only store the index to the visitor type.
                 Currently, the possible property types are:
-                    PODVisitor<uint8>             
+                    PODVisitor<uint8>
                     LittleEndianPODVisitor<uint16>
                     LittleEndianPODVisitor<uint32>
-                    MappedVBInt                   
-                    DynamicBinDataView            
-                    DynamicStringView             
-                    DynamicStringPairView         
+                    MappedVBInt
+                    DynamicBinDataView
+                    DynamicStringView
+                    DynamicStringPairView
             */
             struct VisitorVariant
             {
@@ -1133,25 +1134,25 @@ namespace Protocol
                 uint8 buffer[PrivateRegistry::MaxVisitorsSize::Size];
                 /** The visitor type */
                 uint8 type;
-            
+
                 /** Used to avoid declaring an external variable when iterating properties */
                 PropertyType propType;
                 /** Used to avoid declaring an external variable when iterating properties */
                 uint32       offset;
- 
+
 
                 MemMappedVisitor * getBase()
                 {
                     switch(type)
                     {
                     case 0: return static_cast<MemMappedVisitor*>(reinterpret_cast< PODVisitor<uint8>* >             (buffer));
-                    case 1: return static_cast<MemMappedVisitor*>(reinterpret_cast< LittleEndianPODVisitor<uint16>* >(buffer)); 
-                    case 2: return static_cast<MemMappedVisitor*>(reinterpret_cast< LittleEndianPODVisitor<uint32>* >(buffer)); 
+                    case 1: return static_cast<MemMappedVisitor*>(reinterpret_cast< LittleEndianPODVisitor<uint16>* >(buffer));
+                    case 2: return static_cast<MemMappedVisitor*>(reinterpret_cast< LittleEndianPODVisitor<uint32>* >(buffer));
                     case 3: return static_cast<MemMappedVisitor*>(reinterpret_cast< MappedVBInt *>                   (buffer));
                     case 4: return static_cast<MemMappedVisitor*>(reinterpret_cast< DynamicBinDataView *>            (buffer));
                     case 5: return static_cast<MemMappedVisitor*>(reinterpret_cast< DynamicStringView *>             (buffer));
                     case 6: return static_cast<MemMappedVisitor*>(reinterpret_cast< DynamicStringPairView *>         (buffer));
-                    default: return 0; 
+                    default: return 0;
                     }
                 }
             public:
@@ -1161,7 +1162,7 @@ namespace Protocol
                     return BadData;
                 }
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
+                void dump(MQTTString & out, const int indent = 0)
                 {
                     if (MemMappedVisitor * v = getBase()) v->dump(out, indent);
                 }
@@ -1170,7 +1171,7 @@ namespace Protocol
 
 
                 template <typename T>
-                T * as() 
+                T * as()
                 {
                     switch (type)
                     {
@@ -1182,7 +1183,7 @@ namespace Protocol
                     case 5: return PrivateRegistry::is_same<T, DynamicStringView >             ::Value ? reinterpret_cast<T*>(buffer) : 0;
                     case 6: return PrivateRegistry::is_same<T, DynamicStringPairView >         ::Value ? reinterpret_cast<T*>(buffer) : 0;
                     default: return 0;
-                    } 
+                    }
                 }
 //                template <typename T>
 //                inline T* as(T* const &) { return as<T>(); }
@@ -1235,7 +1236,7 @@ namespace Protocol
             /** A registry used to store the mapping between properties and their visitor */
             class MemMappedPropertyRegistry
             {
-                uint8 propertiesType[PrivateRegistry::PropertiesCount]; 
+                uint8 propertiesType[PrivateRegistry::PropertiesCount];
 
             public:
                 /** Singleton pattern */
@@ -1250,9 +1251,9 @@ namespace Protocol
 
                 /** Get a visitor for the given property.
                     You provide a visitor variant as input and it'll be mutated for the given property type.
-                    You can then use VisitorVariant::acceptBuffer or VisitorVariant::as to get back the 
-                    real visited type. 
-                    
+                    You can then use VisitorVariant::acceptBuffer or VisitorVariant::as to get back the
+                    real visited type.
+
                     Example code:
                     @code
                         VisitorVariant visitor;
@@ -1263,7 +1264,7 @@ namespace Protocol
                             printf("Max packet size: %u\n", maxSize);
                         }
                     @endcode
-                    */ 
+                    */
                 bool getVisitorForProperty(VisitorVariant & visitor, const uint8 propertyType)
                 {
                     if (propertyType >= MaxUsedPropertyType) return false;
@@ -1277,37 +1278,37 @@ namespace Protocol
                 MemMappedPropertyRegistry()
                 {
                     // Register all properties now
-                    propertiesType[ 0] = 0; /* PODVisitor<uint8>              */ // PayloadFormat         
-                    propertiesType[ 1] = 2; /* LittleEndianPODVisitor<uint32> */ // MessageExpiryInterval 
-                    propertiesType[ 2] = 5; /* DynamicStringView              */ // ContentType           
-                    propertiesType[ 3] = 5; /* DynamicStringView              */ // ResponseTopic         
-                    propertiesType[ 4] = 4; /* DynamicBinDataView             */ // CorrelationData       
-                    propertiesType[ 5] = 3; /* MappedVBInt                    */ // SubscriptionID        
-                    propertiesType[ 6] = 2; /* LittleEndianPODVisitor<uint32> */ // SessionExpiryInterval 
-                    propertiesType[ 7] = 5; /* DynamicStringView              */ // AssignedClientID      
-                    propertiesType[ 8] = 1; /* LittleEndianPODVisitor<uint16> */ // ServerKeepAlive       
-                    propertiesType[ 9] = 5; /* DynamicStringView              */ // AuthenticationMethod  
-                    propertiesType[10] = 4; /* DynamicBinDataView             */ // AuthenticationData    
-                    propertiesType[11] = 0; /* PODVisitor<uint8>              */ // RequestProblemInfo    
-                    propertiesType[12] = 2; /* LittleEndianPODVisitor<uint32> */ // WillDelayInterval     
-                    propertiesType[13] = 0; /* PODVisitor<uint8>              */ // RequestResponseInfo   
-                    propertiesType[14] = 5; /* DynamicStringView              */ // ResponseInfo          
-                    propertiesType[15] = 5; /* DynamicStringView              */ // ServerReference       
-                    propertiesType[16] = 5; /* DynamicStringView              */ // ReasonString          
-                    propertiesType[17] = 1; /* LittleEndianPODVisitor<uint16> */ // ReceiveMax            
-                    propertiesType[18] = 1; /* LittleEndianPODVisitor<uint16> */ // TopicAliasMax         
-                    propertiesType[19] = 1; /* LittleEndianPODVisitor<uint16> */ // TopicAlias            
-                    propertiesType[20] = 0; /* PODVisitor<uint8>              */ // QoSMax                
-                    propertiesType[21] = 0; /* PODVisitor<uint8>              */ // RetainAvailable       
-                    propertiesType[22] = 6; /* DynamicStringPairView          */ // UserProperty          
-                    propertiesType[23] = 2; /* LittleEndianPODVisitor<uint32> */ // PacketSizeMax         
-                    propertiesType[24] = 0; /* PODVisitor<uint8>              */ // WildcardSubAvailable  
-                    propertiesType[25] = 0; /* PODVisitor<uint8>              */ // SubIDAvailable        
-                    propertiesType[26] = 0; /* PODVisitor<uint8>              */ // SharedSubAvailable    
+                    propertiesType[ 0] = 0; /* PODVisitor<uint8>              */ // PayloadFormat
+                    propertiesType[ 1] = 2; /* LittleEndianPODVisitor<uint32> */ // MessageExpiryInterval
+                    propertiesType[ 2] = 5; /* DynamicStringView              */ // ContentType
+                    propertiesType[ 3] = 5; /* DynamicStringView              */ // ResponseTopic
+                    propertiesType[ 4] = 4; /* DynamicBinDataView             */ // CorrelationData
+                    propertiesType[ 5] = 3; /* MappedVBInt                    */ // SubscriptionID
+                    propertiesType[ 6] = 2; /* LittleEndianPODVisitor<uint32> */ // SessionExpiryInterval
+                    propertiesType[ 7] = 5; /* DynamicStringView              */ // AssignedClientID
+                    propertiesType[ 8] = 1; /* LittleEndianPODVisitor<uint16> */ // ServerKeepAlive
+                    propertiesType[ 9] = 5; /* DynamicStringView              */ // AuthenticationMethod
+                    propertiesType[10] = 4; /* DynamicBinDataView             */ // AuthenticationData
+                    propertiesType[11] = 0; /* PODVisitor<uint8>              */ // RequestProblemInfo
+                    propertiesType[12] = 2; /* LittleEndianPODVisitor<uint32> */ // WillDelayInterval
+                    propertiesType[13] = 0; /* PODVisitor<uint8>              */ // RequestResponseInfo
+                    propertiesType[14] = 5; /* DynamicStringView              */ // ResponseInfo
+                    propertiesType[15] = 5; /* DynamicStringView              */ // ServerReference
+                    propertiesType[16] = 5; /* DynamicStringView              */ // ReasonString
+                    propertiesType[17] = 1; /* LittleEndianPODVisitor<uint16> */ // ReceiveMax
+                    propertiesType[18] = 1; /* LittleEndianPODVisitor<uint16> */ // TopicAliasMax
+                    propertiesType[19] = 1; /* LittleEndianPODVisitor<uint16> */ // TopicAlias
+                    propertiesType[20] = 0; /* PODVisitor<uint8>              */ // QoSMax
+                    propertiesType[21] = 0; /* PODVisitor<uint8>              */ // RetainAvailable
+                    propertiesType[22] = 6; /* DynamicStringPairView          */ // UserProperty
+                    propertiesType[23] = 2; /* LittleEndianPODVisitor<uint32> */ // PacketSizeMax
+                    propertiesType[24] = 0; /* PODVisitor<uint8>              */ // WildcardSubAvailable
+                    propertiesType[25] = 0; /* PODVisitor<uint8>              */ // SubIDAvailable
+                    propertiesType[26] = 0; /* PODVisitor<uint8>              */ // SharedSubAvailable
                 }
             };
 
-            
+
             /** This is a simple property header that's common to all properties */
             struct PropertyBase : public Serializable
             {
@@ -1316,9 +1317,9 @@ namespace Protocol
                 /** The next property in the list */
                 PropertyBase * next;
                 /** Whether we need to delete the object (default to false) */
-                bool heapAllocated; 
+                bool heapAllocated;
 
-                
+
                 /** The property type */
                 PropertyBase(const PropertyType type, const bool heap = false) : type((uint8)type), next(0), heapAllocated(heap) {}
                 /** Clone the property */
@@ -1328,7 +1329,7 @@ namespace Protocol
                 /** Virtual destructor is required since we destruct virtually the chained list */
                 virtual ~PropertyBase() {}
             };
-            
+
             /** The base of all PropertyView. They are mapped on an existing buffer and are not allocating anything. */
             struct PropertyBaseView : public MemMappedVisitor
             {
@@ -1377,10 +1378,10 @@ namespace Protocol
                 GenericType<T>           value;
 
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    out += MQTTStringPrintf("%*s", indent+2, ""); out += (T)value; out += "\n"; 
+                    out += MQTTStringPrintf("%*s", indent+2, ""); out += (T)value; out += "\n";
                 }
 #endif
 
@@ -1390,13 +1391,13 @@ namespace Protocol
                 /** The default constructor */
                 Property(const PropertyType type, T v = 0, const bool heap = false) : PropertyBaseImpl(type, value, heap), value(v) {}
             };
-            
+
             template<>
             struct Property<DynamicString> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 DynamicString       value;
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return sizeof(type) + value.getSize(); }
                 /** Copy the value into the given buffer.
@@ -1419,10 +1420,10 @@ namespace Protocol
                 bool check() const { return type < 0x80 && value.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    value.dump(out, indent + 2); 
+                    value.dump(out, indent + 2);
                 }
 #endif
                 /** Clone this property */
@@ -1437,7 +1438,7 @@ namespace Protocol
             {
                 /** The property value, depends on the type */
                 DynamicBinaryData   value;
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return sizeof(type) + value.getSize(); }
                 /** Copy the value into the given buffer.
@@ -1460,10 +1461,10 @@ namespace Protocol
                 bool check() const { return type < 0x80 && value.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    value.dump(out, indent + 2); 
+                    value.dump(out, indent + 2);
                 }
 #endif
 
@@ -1479,7 +1480,7 @@ namespace Protocol
             {
                 /** The property value, depends on the type */
                 DynamicStringPair   value;
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return sizeof(type) + value.getSize(); }
                 /** Copy the value into the given buffer.
@@ -1502,10 +1503,10 @@ namespace Protocol
                 bool check() const { return type < 0x80 && value.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    value.dump(out, indent + 2); 
+                    value.dump(out, indent + 2);
                 }
 #endif
                 /** Clone this property */
@@ -1521,48 +1522,7 @@ namespace Protocol
             {
                 /** The property value, depends on the type */
                 DynamicStringView       value;
-                
-                /** This give the size required for serializing this property header in bytes */
-                uint32 getSize() const { return sizeof(type) + value.getSize(); }
-                /** Copy the value into the given buffer.
-                    @param buffer   A pointer to an allocated buffer that's at least 1 byte long, and at worst very large (use getSize to figure out the required size).
-                    @return The number of bytes used in the buffer */
-                uint32 copyInto(uint8 * buffer) const { buffer[0] = type; uint32 o = value.copyInto(buffer+1); return o + 1; }
-                /** Read the value from a buffer.
-                    @param buffer   A pointer to an allocated buffer that's at least 1 byte long
-                    @return The number of bytes read from the buffer, or BadData upon error */
-                uint32 readFrom(const uint8 * buffer, uint32 bufLength)
-                {
-                    if ((buffer[0] & 0x80) || buffer[0] != type) return BadData;
-                    if (bufLength < 3) return NotEnoughData;
-                    uint32 o = value.readFrom(buffer+1, bufLength - 1);
-                    if (isError(o)) return o;
-                    return o+1;
-                }
-#if MQTTAvoidValidation != 1                
-                /** Check if this property is valid */
-                bool check() const { return type < 0x80 && value.check(); }
-#endif
-#if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    value.dump(out, indent + 2); 
-                }
-#endif
-                /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
 
-                /** The default constructor */
-                Property(const PropertyType type, const DynamicStringView value = "", const bool heap = false) : PropertyBase(type, heap), value(value) {}
-            };
-
-            template<>
-            struct Property<DynamicBinDataView> Final : public PropertyBase
-            {
-                /** The property value, depends on the type */
-                DynamicBinDataView   value;
-            
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return sizeof(type) + value.getSize(); }
                 /** Copy the value into the given buffer.
@@ -1585,10 +1545,51 @@ namespace Protocol
                 bool check() const { return type < 0x80 && value.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    value.dump(out, indent + 2); 
+                    value.dump(out, indent + 2);
+                }
+#endif
+                /** Clone this property */
+                PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
+
+                /** The default constructor */
+                Property(const PropertyType type, const DynamicStringView value = "", const bool heap = false) : PropertyBase(type, heap), value(value) {}
+            };
+
+            template<>
+            struct Property<DynamicBinDataView> Final : public PropertyBase
+            {
+                /** The property value, depends on the type */
+                DynamicBinDataView   value;
+
+                /** This give the size required for serializing this property header in bytes */
+                uint32 getSize() const { return sizeof(type) + value.getSize(); }
+                /** Copy the value into the given buffer.
+                    @param buffer   A pointer to an allocated buffer that's at least 1 byte long, and at worst very large (use getSize to figure out the required size).
+                    @return The number of bytes used in the buffer */
+                uint32 copyInto(uint8 * buffer) const { buffer[0] = type; uint32 o = value.copyInto(buffer+1); return o + 1; }
+                /** Read the value from a buffer.
+                    @param buffer   A pointer to an allocated buffer that's at least 1 byte long
+                    @return The number of bytes read from the buffer, or BadData upon error */
+                uint32 readFrom(const uint8 * buffer, uint32 bufLength)
+                {
+                    if ((buffer[0] & 0x80) || buffer[0] != type) return BadData;
+                    if (bufLength < 3) return NotEnoughData;
+                    uint32 o = value.readFrom(buffer+1, bufLength - 1);
+                    if (isError(o)) return o;
+                    return o+1;
+                }
+#if MQTTAvoidValidation != 1
+                /** Check if this property is valid */
+                bool check() const { return type < 0x80 && value.check(); }
+#endif
+#if MQTTDumpCommunication == 1
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
+                    value.dump(out, indent + 2);
                 }
 #endif
                 /** Clone this property */
@@ -1625,10 +1626,10 @@ namespace Protocol
                 bool check() const { return type < 0x80 && value.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    value.dump(out, indent + 2); 
+                    value.dump(out, indent + 2);
                 }
 #endif
                 /** Clone this property */
@@ -1637,13 +1638,13 @@ namespace Protocol
                 Property(const PropertyType type, const DynamicStringPairView value, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
 
-            
+
             template<>
             struct Property<VBInt> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 VBInt               value;
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return sizeof(type) + value.getSize(); }
                 /** Copy the value into the given buffer.
@@ -1666,10 +1667,10 @@ namespace Protocol
                 bool check() const { return type < 0x80 && value.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    value.dump(out, indent + 2); 
+                    value.dump(out, indent + 2);
                 }
 #endif
 
@@ -1679,13 +1680,13 @@ namespace Protocol
                 /** The default constructor */
                 Property(const PropertyType type, const uint32 value = 0, const bool heap = false) : PropertyBase(type, heap), value(value) {}
             };
-            
+
             /** The deserialization registry for properties */
             struct PropertyRegistry
             {
                 /** The function used to create a new instance of a property */
                 typedef PropertyBase * (*InstantiateFunc)();
-                
+
                 /** The creator method array */
                 InstantiateFunc unserializeFunc[MaxUsedPropertyType];
                 /** Register a property to this registry */
@@ -1756,7 +1757,7 @@ namespace Protocol
             typedef TypedProperty<WildcardSubAvailable, uint8>              WildcardSubAvailableProp;
             typedef TypedProperty<SubIDAvailable, uint8>                    SubIDAvailableProp;
             typedef TypedProperty<SharedSubAvailable, uint8>                SharedSubAvailableProp;
-            
+
             /** This needs to be done once, at least */
             static inline void registerAllProperties()
             {
@@ -1794,7 +1795,7 @@ namespace Protocol
                 }
             }
 
-            
+
             /** The allowed properties for each control packet type.
                 This is used externally to allow generic code to be written */
             template <PropertyType type> struct ExpectedProperty { enum { AllowedMask = 0 }; };
@@ -1852,8 +1853,8 @@ namespace Protocol
 
             /** The property structure (section 2.2.2).
                 This object is trying to avoid memory allocation to limit its impact.
-                Such feature is implemented by a "reference mechanism". 
-                Whenever an instance is build by "copying" or "capture", a reference to the original object 
+                Such feature is implemented by a "reference mechanism".
+                Whenever an instance is build by "copying" or "capture", a reference to the original object
                 is captured and no copy is really made. If you need a copy, use the clone method.
 
                 The reference is done with specific double-head tracking for it.
@@ -1872,11 +1873,11 @@ namespace Protocol
                 /** Destroy correctly this instance */
                 void suicide()
                 {
-                    while (head && head != reference) 
-                    { 
-                        PropertyBase * n = head->next; 
+                    while (head && head != reference)
+                    {
+                        PropertyBase * n = head->next;
                         head->suicide();
-                        head = n; 
+                        head = n;
                     }
                     reference = 0;
                 }
@@ -1926,7 +1927,7 @@ namespace Protocol
                     {
                         uint32 s = PropertyRegistry::getInstance().unserialize(buffer, cumSize, property);
                         if (isError(s)) return s;
-                        if (head) property->next = head; 
+                        if (head) property->next = head;
                         head = property;
                         buffer += s; cumSize -= s;
                         o += s;
@@ -1934,13 +1935,13 @@ namespace Protocol
                     return o;
                 }
 #endif
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return length.check() && head ? head->check() : true; }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
                     if (!(uint32)length) return;
                     PropertyBase * c = head;
@@ -2000,7 +2001,7 @@ namespace Protocol
                     }
                     return ret;
                 }
-                
+
                 /** Build an empty property list */
                 Properties() : head(0), reference(0) {}
                 /** Copy construction does not really create a copy, but take a reference on the existing object */
@@ -2011,7 +2012,7 @@ namespace Protocol
 #endif
                 /** Build a property list starting with the given property that's owned.
                     @param firstProperty    A pointer on a new allocated Property that's owned by this list */
-                Properties(PropertyBase * firstProperty) 
+                Properties(PropertyBase * firstProperty)
                     : length(firstProperty->getSize()), head(firstProperty), reference(0) {}
                 ~Properties() { suicide(); }
             };
@@ -2021,7 +2022,7 @@ namespace Protocol
                 Unlike the Properties class above that's able to add and parse properties, this
                 one only parse properties but never allocate anything on the heap.
 
-                The idea here is to parse properties on the fly, one by one and let the client code 
+                The idea here is to parse properties on the fly, one by one and let the client code
                 perform fetching the information it wants from them.
 
                 Typically, you'll use this class like this:
@@ -2041,7 +2042,7 @@ namespace Protocol
                         else if (visitor.propertyType() == SomeOtherProperty)
                         {
                             auto pod = visitor.as< PODVisitor<uint8> >();
-                            uint8 value = pod->getValue(); // Do something with value 
+                            uint8 value = pod->getValue(); // Do something with value
                         }
                     }
                 @endcode */
@@ -2092,13 +2093,13 @@ namespace Protocol
                     buffer = _buffer + o;
                     return o + (uint32)length;
                 }
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return length.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
+                void dump(MQTTString & out, const int indent = 0)
+                {
                     out += MQTTStringPrintf("%*sProperties with length ", (int)indent, ""); length.dump(out, 0);
                     if (!(uint32)length) return;
                     VisitorVariant visitor;
@@ -2108,7 +2109,7 @@ namespace Protocol
                         visitor.dump(out, indent + 4);
                     }
                 }
-#endif                
+#endif
 #if MQTTAvoidValidation != 1
                 /** Check if the properties are compatible for the given packet type */
                 bool checkPropertiesFor(const ControlPacketType type) const
@@ -2120,9 +2121,9 @@ namespace Protocol
                         if (!isAllowedProperty(v.propertyType(), type)) return false;
                     }
                     return true;
-                }                
+                }
 #endif
-                
+
                 /** Build an empty property list */
                 PropertiesView() : buffer(0) {}
                 /** Copy construction */
@@ -2133,7 +2134,7 @@ namespace Protocol
                 PropertiesView(PropertiesView && other) : length(std::move(other.length)), buffer(std::move(other.buffer)) {}
 #endif
             };
-            
+
             /** The possible value for retain handling in subscribe packet */
             enum RetainHandling
             {
@@ -2147,7 +2148,7 @@ namespace Protocol
             {
                 AtMostOne                           = 0,    //!< At most one delivery (unsecure sending)
                 AtLeastOne                          = 1,    //!< At least one delivery (could have retransmission)
-                ExactlyOne                          = 2,    //!< Exactly one delivery (longer to send) 
+                ExactlyOne                          = 2,    //!< Exactly one delivery (longer to send)
             };
 
             struct ScribeTopicBase : public Serializable
@@ -2161,14 +2162,14 @@ namespace Protocol
                 bool                stackBased;
 
             public:
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return topic.check() && (next ? next->check() : true); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    topic.dump(out, indent); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    topic.dump(out, indent);
                     if (next) next->dump(out, indent);
                 }
 #endif
@@ -2227,7 +2228,7 @@ namespace Protocol
                     @return The number of bytes read from the buffer, or 0xFF upon error */
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
-                    if (next) next->suicide(); 
+                    if (next) next->suicide();
                     next = 0;
                     uint32 o = 0, s = topic.readFrom(buffer, bufLength);
                     if (isError(s)) return s;
@@ -2244,14 +2245,14 @@ namespace Protocol
                     return o;
                 }
 #endif
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return reserved == 0 && retainAsPublished != 3 && QoS != 3 && ScribeTopicBase::check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", (uint8)QoS, (uint8)nonLocal, (uint8)retainAsPublished, (uint8)retainHandling); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sSubscribe (QoS %d, nonLocal %d, retainAsPublished %d, retainHandling %d): ", (int)indent, "", (uint8)QoS, (uint8)nonLocal, (uint8)retainAsPublished, (uint8)retainHandling);
                     ScribeTopicBase::dump(out, indent);
                 }
 #endif
@@ -2264,7 +2265,7 @@ namespace Protocol
                 /** Full constructor */
                 SubscribeTopic(const DynString & topic, const uint8 retainHandling, const bool retainAsPublished, const bool nonLocal, const uint8 QoS, const bool stackBased = false)
                     : ScribeTopicBase(topic, stackBased), option(0) { this->retainHandling = retainHandling; this->retainAsPublished = retainAsPublished ? 1 : 0; this->nonLocal = nonLocal ? 1:0; this->QoS = QoS; }
-            };            
+            };
 #pragma pack(pop)
             /** The unsubscribe topic list */
             struct UnsubscribeTopic : public ScribeTopicBase
@@ -2287,7 +2288,7 @@ namespace Protocol
                     @return The number of bytes read from the buffer, or 0xFF upon error */
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
-                    if (next) next->suicide(); 
+                    if (next) next->suicide();
                     next = 0;
                     uint32 o = 0, s = topic.readFrom(buffer, bufLength);
                     if (isError(s)) return s;
@@ -2303,9 +2304,9 @@ namespace Protocol
                 }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*sUnsubscribe: ", (int)indent, ""); topic.dump(out, indent); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sUnsubscribe: ", (int)indent, ""); topic.dump(out, indent);
                     ScribeTopicBase::dump(out, indent);
                 }
 #endif
@@ -2319,7 +2320,7 @@ namespace Protocol
                 UnsubscribeTopic(const DynString & topic, const bool stackBased = false)
                     : ScribeTopicBase(topic, stackBased) {}
             };
-            
+
             /** The variable header presence for each possible packet type, the payload presence in each packet type */
             template <ControlPacketType type>
             struct ControlPacketMeta
@@ -2331,7 +2332,7 @@ namespace Protocol
                 /** The payload data if any expected */
                 static const bool hasPayload = false;
             };
-            
+
             /** The default fixed field before the variable header's properties */
             template <ControlPacketType type>
             struct FixedField : public Serializable
@@ -2358,7 +2359,7 @@ namespace Protocol
             struct Payload : public SerializablePayload
             {
             };
-            
+
             /** Declare all the expected control packet type and format */
             template <> struct ControlPacketMeta<CONNECT>       { typedef ConnectHeader          FixedHeader; typedef Properties        VariableHeader; static const bool hasPayload = true;  };
             template <> struct ControlPacketMeta<CONNACK>       { typedef ConnectACKHeader       FixedHeader; typedef Properties        VariableHeader; static const bool hasPayload = false; };
@@ -2389,7 +2390,7 @@ namespace Protocol
                 {
                     /** This is used to avoid setting all flags by hand */
                     uint8 flags;
-                    
+
                     /** The user name flag */
                     BitField<uint8, 7, 1> usernameFlag;
                     /** The password flag */
@@ -2456,9 +2457,9 @@ namespace Protocol
                 uint32 typeSize() const { return sizeof(value); }
                 void swapNetwork() const { const_cast<ConnectHeaderImpl&>(value).keepAlive = BigEndian(value.keepAlive); }
                 void * raw() { return &value; }
-                operator ConnectHeaderImpl& () { return value; } 
+                operator ConnectHeaderImpl& () { return value; }
                 GenericType<ConnectHeaderImpl> & operator = (const ConnectHeaderImpl & o) { value = o; return *this; }
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 bool check() const { return value.check(); }
 #endif
                 GenericType<ConnectHeaderImpl>(ConnectHeaderImpl & v) : value(v) {}
@@ -2470,15 +2471,15 @@ namespace Protocol
                 GenericType<ConnectHeaderImpl> _v;
             public:
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*sCONNECT packet (clean %d, will %d, willQoS %d, willRetain %d, password %d, username %d, keepAlive: %d)\n", (int)indent, "", (uint8)cleanStart, (uint8)willFlag, (uint8)willQoS, (uint8)willRetain, (uint8)passwordFlag, (uint8)usernameFlag, keepAlive); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sCONNECT packet (clean %d, will %d, willQoS %d, willRetain %d, password %d, username %d, keepAlive: %d)\n", (int)indent, "", (uint8)cleanStart, (uint8)willFlag, (uint8)willQoS, (uint8)willRetain, (uint8)passwordFlag, (uint8)usernameFlag, keepAlive);
                 }
 #endif
                 /** The default constructor */
                 FixedField<CONNECT>() : FixedFieldGeneric(_v), _v(*this) {}
             };
-            
+
 #pragma pack(push, 1)
             struct ConnACKHeaderImpl
             {
@@ -2502,12 +2503,12 @@ namespace Protocol
                 void swapNetwork() const {  }
                 void * raw() { return &value; }
                 GenericType<ConnACKHeaderImpl> & operator = (const ConnACKHeaderImpl & o) { value = o; return *this; }
-                operator ConnACKHeaderImpl& () { return value; } 
+                operator ConnACKHeaderImpl& () { return value; }
                 GenericType<ConnACKHeaderImpl>(ConnACKHeaderImpl & v) : value(v) {}
             };
 
 
-            
+
             /** The fixed field for the CONNACK packet */
             template <> class FixedField<CONNACK> Final : public ConnACKHeaderImpl, public FixedFieldGeneric
             {
@@ -2518,7 +2519,7 @@ namespace Protocol
 #endif
                 /** The default constructor */
                 FixedField<CONNACK>() : FixedFieldGeneric(_v), _v(*this) {}
-            };                
+            };
 
             /** Some packets, like DISCONNECT, CONNACK, ... can be shorter and in that case, return a Shortcut return value */
             struct FixedFieldWithRemainingLength : public FixedFieldGeneric
@@ -2531,7 +2532,7 @@ namespace Protocol
                     if (!isError(r) && remLength == value.typeSize()) return Shortcut;
                     return r;
                 }
-                
+
                 FixedFieldWithRemainingLength(GenericTypeBase & v, uint32 remLength) : FixedFieldGeneric(v), remLength(remLength) {}
             protected:
                 uint32 remLength;
@@ -2542,7 +2543,7 @@ namespace Protocol
             {
                 /** The packet identifier */
                 GenericType<uint16> packetID;
-                
+
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sControl packet (id 0x%04X)\n", (int)indent, "", (uint16)packetID); }
 #endif
@@ -2557,7 +2558,7 @@ namespace Protocol
 
                 /** Allow conversion to reason code here directly */
                 ReasonCodes reason() const { return (ReasonCodes)reasonCode.value; }
-                
+
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*Control packet (reason %u)\n", (int)indent, "", (uint8)reasonCode); }
 #endif
@@ -2565,11 +2566,11 @@ namespace Protocol
                 {
                     if (remLength == 0) { reasonCode.value = 0; return Shortcut; }
                     return FixedFieldGeneric::readFrom(buffer, bufLength);
-                }                
+                }
                 /** The default constructor */
                 FixedFieldWithReason() : FixedFieldWithRemainingLength(reasonCode, 1) { }
             };
-            
+
 #pragma pack(push, 1)
             struct IDAndReason
             {
@@ -2589,7 +2590,7 @@ namespace Protocol
                 void swapNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }
                 void * raw() { return &value; }
                 GenericType<IDAndReason> & operator = (const IDAndReason & o) { value = o; return *this; }
-                operator IDAndReason& () { return value; } 
+                operator IDAndReason& () { return value; }
 
                 GenericType<IDAndReason>(IDAndReason & v) : value(v) {}
             };
@@ -2638,7 +2639,7 @@ namespace Protocol
             template <> struct FixedField<PUBCOMP>      Final: public FixedFieldWithIDAndReason {};
 
             /** The fixed field for the DISCONNECT packet which supports shortcut */
-            template <> struct FixedField<DISCONNECT>   Final: public FixedFieldWithReason 
+            template <> struct FixedField<DISCONNECT>   Final: public FixedFieldWithReason
             {
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
@@ -2664,13 +2665,13 @@ namespace Protocol
             {
                 TopicAndID & value;
                 uint32 typeSize() const { return value.topicName.getSize(); }
-                void swapNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }         
+                void swapNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }
 #if MQTTAvoidValidation != 1
                 bool check() const { return value.topicName.check(); }
 #endif
                 void * raw() { return &value; }
                 GenericType<TopicAndID> & operator = (const TopicAndID & o) { value = o; return *this; }
-                operator TopicAndID& () { return value; } 
+                operator TopicAndID& () { return value; }
 
                 GenericType<TopicAndID>(TopicAndID & v) : value(v) {}
             };
@@ -2722,14 +2723,14 @@ namespace Protocol
 
                 /** The default constructor */
                 FixedField<PUBLISH>() : FixedFieldGeneric(_v), _v(*this), flags(0) { }
-                
+
             private:
                 /** The main header flags */
                 const uint8 * flags;
             };
-            
- 
-           
+
+
+
             // Payloads
             ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -2747,14 +2748,14 @@ namespace Protocol
 
                 /** We have a getSize() method that gives the number of bytes requires to serialize this object */
                 virtual uint32 getSize() const { return willProperties.getSize() + willTopic.getSize() + willPayload.getSize(); }
-                
+
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least getSize() bytes long
                     @return The number of bytes used in the buffer */
-                virtual uint32 copyInto(uint8 * buffer) const 
+                virtual uint32 copyInto(uint8 * buffer) const
                 {
-                    uint32 o = willProperties.copyInto(buffer); 
-                    o += willTopic.copyInto(buffer+o); 
+                    uint32 o = willProperties.copyInto(buffer);
+                    o += willTopic.copyInto(buffer+o);
                     o += willPayload.copyInto(buffer+o);
                     return o;
                 }
@@ -2777,7 +2778,7 @@ namespace Protocol
                     return o;
                 }
 #endif
-                
+
 #if MQTTAvoidValidation != 1
                 /** Check the will properties validity */
                 bool check() const
@@ -2825,11 +2826,11 @@ namespace Protocol
                 DynString           username;
                 /** The password used for authentication */
                 DynBinData          password;
-                
+
                 /** Set the fixed header */
                 void setFlags(const FixedFieldGeneric & field) { fixedHeader = (FixedField<CONNECT>*)&field; }
 
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 /** Check if the client ID is valid */
                 bool checkClientID() const
                 {
@@ -2846,7 +2847,7 @@ namespace Protocol
                     return willMessage->check();
                 }
 #endif
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return clientID.getSize() + getFilteredSize(); }
                 /** Copy the value into the given buffer.
@@ -2856,7 +2857,7 @@ namespace Protocol
                 {
                     uint32 o = clientID.copyInto(buffer);
                     if (!fixedHeader) return o;
-                    if (fixedHeader->willFlag)       o += willMessage->copyInto(buffer+o); 
+                    if (fixedHeader->willFlag)       o += willMessage->copyInto(buffer+o);
                     if (fixedHeader->usernameFlag)   o += username.copyInto(buffer+o);
                     if (fixedHeader->passwordFlag)   o += password.copyInto(buffer+o);
                     return o;
@@ -2892,7 +2893,7 @@ namespace Protocol
                     return o;
                 }
 #endif
-#if MQTTAvoidValidation != 1                
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const
                 {
@@ -2905,9 +2906,9 @@ namespace Protocol
                 }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*sCONNECT payload\n", (int)indent, ""); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sCONNECT payload\n", (int)indent, "");
                     out += MQTTStringPrintf("%*sClientID: ", (int)indent + 2, ""); clientID.dump(out, 0);
                     if (fixedHeader->willFlag) willMessage->dump(out, indent + 2);  // Not testing pointer here, since it's a correctly constructed object is expected
                     out += MQTTStringPrintf("%*sUsername: ", (int)indent + 2, ""); username.dump(out, 0);
@@ -2919,7 +2920,7 @@ namespace Protocol
 #if MQTTClientOnlyImplementation != 1
                 ~Payload<CONNECT>() { delete0(willMessage); }
 #endif
-                
+
             private:
                 /** This is the flags set in the connect header. This is used to ensure good serialization, this is not serialized */
                 const FixedField<CONNECT> *  fixedHeader;
@@ -2942,7 +2943,7 @@ namespace Protocol
                 uint8 * data;
                 /** The payload size */
                 uint32  size;
-                
+
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
                 inline void setExpectedPacketSize(uint32 sizeInBytes)
                 {
@@ -2971,7 +2972,7 @@ namespace Protocol
 
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
-#endif                
+#endif
                 PayloadWithData() : data(0), size(0) {}
                 ~PayloadWithData() { free0(data); size = 0; }
             };
@@ -2983,7 +2984,7 @@ namespace Protocol
                 const uint8 * data;
                 /** The payload size */
                 uint32  size;
-                
+
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
                 inline void setExpectedPacketSize(uint32 sizeInBytes)
                 {
@@ -3011,8 +3012,8 @@ namespace Protocol
 
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
-#endif                
-                
+#endif
+
                 PayloadWithData() : data(0), size(0) {}
                 ~PayloadWithData() { data = 0; size = 0; }
             };
@@ -3023,10 +3024,10 @@ namespace Protocol
             {
                 /** The subscribe topics */
                 SubscribeTopic * topics;
-                
+
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
                 inline void setExpectedPacketSize(uint32 sizeInBytes) { expSize = sizeInBytes; }
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return topics ? topics->getSize() : 0; }
                 /** Copy the value into the given buffer.
@@ -3051,14 +3052,14 @@ namespace Protocol
                 bool check() const { return topics ? topics->check() : true; }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*sSUBSCRIBE Payload\n", (int)indent, ""); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sSUBSCRIBE Payload\n", (int)indent, "");
                     if (topics) topics->dump(out, indent + 2);
                 }
-#endif                
-                
-                
+#endif
+
+
                 Payload<SUBSCRIBE>() : topics(0), expSize(0) {}
                 ~Payload<SUBSCRIBE>() { if (topics) topics->suicide(); topics = 0; }
             private:
@@ -3071,10 +3072,10 @@ namespace Protocol
             {
                 /** The subscribe topics */
                 UnsubscribeTopic * topics;
-                
+
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
                 inline void setExpectedPacketSize(uint32 sizeInBytes) { expSize = sizeInBytes; }
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return topics ? topics->getSize() : 0; }
                 /** Copy the value into the given buffer.
@@ -3098,14 +3099,14 @@ namespace Protocol
                 bool check() const { return topics ? topics->check() : true; }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*sUNSUBSCRIBE Payload\n", (int)indent, ""); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*sUNSUBSCRIBE Payload\n", (int)indent, "");
                     if (topics) topics->dump(out, indent + 2);
                 }
-#endif                
-                
-                
+#endif
+
+
                 Payload<UNSUBSCRIBE>() : topics(0), expSize(0) {}
                 ~Payload<UNSUBSCRIBE>() { if (topics) topics->suicide(); topics = 0; }
             private:
@@ -3145,16 +3146,16 @@ namespace Protocol
 
             /** Generic variable header with heap allocated properties with or without an identifier */
             template <ControlPacketType type, bool propertyMapped>
-            struct VHPropertyChooser 
-            { 
-                typedef typename ControlPacketMeta<type>::VariableHeader VHProperty; 
-                typedef Payload<type> PayloadType; 
+            struct VHPropertyChooser
+            {
+                typedef typename ControlPacketMeta<type>::VariableHeader VHProperty;
+                typedef Payload<type> PayloadType;
             };
 
             /** This is only valid for properties without an identifier */
             template <ControlPacketType type>
-            struct VHPropertyChooser<type, true> 
-            { 
+            struct VHPropertyChooser<type, true>
+            {
                 typedef PropertiesView VHProperty;
                 typedef typename PayloadSelector<type, false>::PayloadType PayloadType;
             };
@@ -3177,18 +3178,18 @@ namespace Protocol
                 SerializableProperties &                                        props;
                 /** The payload (if any required) */
                 SerializablePayload &                                           payload;
-                
+
 
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*s%s control packet (rlength: %u)\n", (int)indent, "", Helper::getControlPacketName(header.getType()), (uint32)remLength); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*s%s control packet (rlength: %u)\n", (int)indent, "", Helper::getControlPacketName(header.getType()), (uint32)remLength);
                     header.dump(out, indent + 2);
                     fixedVariableHeader.dump(out, indent + 2);
                     props.dump(out, indent + 2);
                     payload.dump(out, indent + 2);
                 }
-#endif                
+#endif
 
 
                 /** An helper function to actually compute the current packet size, instead of returning the computed value.
@@ -3225,7 +3226,7 @@ namespace Protocol
                 {
                     if (bufLength < 2) return NotEnoughData;
                     uint32 o = 1; const_cast<uint8&>(header.typeAndFlags) = buffer[0];
-                    
+
                     buffer += o; bufLength -= o;
 
                     uint32 s = remLength.readFrom(buffer, bufLength);
@@ -3254,8 +3255,8 @@ namespace Protocol
                 {
                     return header.check() && remLength.check() && fixedVariableHeader.check() && props.checkPropertiesFor(header.getType()) && payload.check();
                 }
-#endif                
-                ControlPacketSerializableImpl(FixedHeaderBase & _header, FixedFieldGeneric & _fixedVariableHeader, SerializableProperties & _props, SerializablePayload & _payload) 
+#endif
+                ControlPacketSerializableImpl(FixedHeaderBase & _header, FixedFieldGeneric & _fixedVariableHeader, SerializableProperties & _props, SerializablePayload & _payload)
                     : header(_header), fixedVariableHeader(_fixedVariableHeader), props(_props), payload(_payload) {}
             };
 
@@ -3270,12 +3271,12 @@ namespace Protocol
                 typename VHPropertyChooser<type, propertyMapped>::VHProperty    props;
                 /** The payload (if any required) */
 #if MQTTClientOnlyImplementation == 1
-                // Client implementation never need to allocate anything here, either it's client provided or server's buffer provided 
+                // Client implementation never need to allocate anything here, either it's client provided or server's buffer provided
                 typename PayloadSelector<type, true>::PayloadType               payload;
 #else
                 typename PayloadSelector<type, propertyMapped>::PayloadType     payload;
-#endif                
-                ControlPacket() : ControlPacketSerializableImpl(header, fixedVariableHeader, props, payload) 
+#endif
+                ControlPacket() : ControlPacketSerializableImpl(header, fixedVariableHeader, props, payload)
                 {
                     payload.setFlags(fixedVariableHeader); fixedVariableHeader.setFlags(header.typeAndFlags);
                 }
@@ -3293,7 +3294,7 @@ namespace Protocol
                 /** The payload (if any required) */
                 SerializablePayload                                             payload;
 
-                PublishReplyPacket(const ControlPacketType type) : ControlPacketSerializableImpl(header, fixedVariableHeader, props, payload), header(type, type == PUBREL ? 2 : 0) 
+                PublishReplyPacket(const ControlPacketType type) : ControlPacketSerializableImpl(header, fixedVariableHeader, props, payload), header(type, type == PUBREL ? 2 : 0)
                 {}
             };
 
@@ -3304,7 +3305,7 @@ namespace Protocol
             {
                 /** The fixed header */
                 typename ControlPacketMeta<type>::FixedHeader       header;
-                
+
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return 2; }
                 /** The packet size is always 2 */
@@ -3331,12 +3332,12 @@ namespace Protocol
                 bool check() const { return header.check(); }
 #endif
 #if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) 
-                { 
-                    out += MQTTStringPrintf("%*s%s control packet\n", (int)indent, "", Helper::getControlPacketName(type)); 
+                void dump(MQTTString & out, const int indent = 0)
+                {
+                    out += MQTTStringPrintf("%*s%s control packet\n", (int)indent, "", Helper::getControlPacketName(type));
                     header.dump(out, indent + 2);
                 }
-#endif                
+#endif
 
             };
             /** Declare the ping request */

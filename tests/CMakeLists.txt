@@ -1,4 +1,4 @@
-add_executable(MQTTc 
+add_executable(MQTTc
     MQTTc.cpp
     ClassPath/src/Address.cpp
     ClassPath/src/bstrwrap.cpp
@@ -13,7 +13,7 @@ add_executable(MQTTc
 
     ClassPath/src/bstrlib.c)
 
-add_executable(MQTTParsePacket 
+add_executable(MQTTParsePacket
     MQTTParsePacket.cpp
     ClassPath/src/bstrwrap.cpp
     ClassPath/src/HashKey.cpp
@@ -25,6 +25,20 @@ add_executable(MQTTParsePacket
     ClassPath/src/Dump.cpp
 
     ClassPath/src/bstrlib.c)
+
+add_executable(SerializationTests
+    SerializationTests.cpp
+    ClassPath/src/bstrwrap.cpp
+    ClassPath/src/HashKey.cpp
+    ClassPath/src/Lock.cpp
+    ClassPath/src/Logger.cpp
+    ClassPath/src/Strings.cpp
+    ClassPath/src/Time.cpp
+    ClassPath/src/LinuxSpecific.cpp
+    ClassPath/src/Dump.cpp
+
+    ClassPath/src/bstrlib.c)
+
 
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -44,12 +58,15 @@ set_target_properties(MQTTParsePacket PROPERTIES
 
 include_directories(ClassPath/include/)
 
-target_compile_definitions(MQTTc PUBLIC _DEBUG=$<CONFIG:Debug> 
-                                        MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON> 
-                                        MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF> 
+target_compile_definitions(MQTTc PUBLIC _DEBUG=$<CONFIG:Debug>
+                                        MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON>
+                                        MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>
                                         MQTTUseTLS=$<AND:$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>,$<STREQUAL:${ENABLE_TLS},ON>>)
 
-target_compile_definitions(MQTTParsePacket PUBLIC _DEBUG=$<CONFIG:Debug> 
+target_compile_definitions(MQTTParsePacket PUBLIC _DEBUG=$<CONFIG:Debug>
+                                        $<$<PLATFORM_ID:Linux>:_LINUX=1>)
+
+target_compile_definitions(SerializationTests PUBLIC _DEBUG=$<CONFIG:Debug>
                                         $<$<PLATFORM_ID:Linux>:_LINUX=1>)
 
 
@@ -73,4 +90,6 @@ target_link_libraries(MQTTc LINK_PUBLIC eMQTT5 ${CMAKE_DL_LIBS} Threads::Threads
 install(TARGETS MQTTc RUNTIME DESTINATION bin)
 target_link_libraries(MQTTParsePacket LINK_PUBLIC eMQTT5 ${CMAKE_DL_LIBS} Threads::Threads)
 install(TARGETS MQTTParsePacket RUNTIME DESTINATION bin)
+
+target_link_libraries(SerializationTests LINK_PUBLIC eMQTT5 ${CMAKE_DL_LIBS} Threads::Threads)
 

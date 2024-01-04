@@ -6,7 +6,7 @@
 #include "Logger/Logger.hpp"
 // We need FastString
 #include "Strings/Strings.hpp"
-// We need MQTT client 
+// We need MQTT client
 // Swap our own string class here and don't depend on the selected build flags
 #define MQTTDumpCommunication 1
 #undef MQTTString
@@ -59,17 +59,17 @@ int main(int argc, char ** argv)
     if (argc == 1 || (argc == 2 && String("--help") == argv[1]))
     {
         printf("MQTTv5 Packet Parser\nUsage is: %s 0x34 0xC3  or %s 12 23 45 AB CE or %s \"12ACBEC345353\" or %s -f fileToParse\n", argv[0], argv[0], argv[0], argv[0]);
-        return 0; 
+        return 0;
     }
 
     uint8 * inBuffer = 0;
     size_t inSize = 0;
-    if (argc == 3 && String("-f") == argv[1]) 
+    if (argc == 3 && String("-f") == argv[1])
     {
-        if (!readFile(argv[2], inBuffer, inSize)) 
-            return fprintf(stderr, "Can't read the given file: %s\n", argv[2]);  
-    } 
-    else 
+        if (!readFile(argv[2], inBuffer, inSize))
+            return fprintf(stderr, "Can't read the given file: %s\n", argv[2]);
+    }
+    else
     {
         // Concatenate input
         String data;
@@ -80,7 +80,7 @@ int main(int argc, char ** argv)
         for (int i = 0; i < input.getLength(); i+=2)
         {
            char hi = input[i], lo = input[i+1]; // This works even if out of buffer since default value is zero in that case;
-           inBuffer[inSize++] = (asHex(hi) << 4) | asHex(lo); 
+           inBuffer[inSize++] = (asHex(hi) << 4) | asHex(lo);
         }
     }
     // Then try to parse it
@@ -97,11 +97,11 @@ int main(int argc, char ** argv)
     // Check packet size
     if ((uint32)len + 1 + len.getSize() < inSize)
         printf("Warning: Got additional %d bytes but packet size is coded as: %u\n", (int)inSize, (uint32)len + 1 + len.getSize());
-    else printf("with size: %u\n", (uint32)len + 1 + len.getSize()); 
+    else printf("with size: %u\n", (uint32)len + 1 + len.getSize());
 
     // Then dump it now
     Protocol::MQTT::V5::registerAllProperties();
-    Protocol::MQTT::V5::ControlPacketSerializable * packet; 
+    Protocol::MQTT::V5::ControlPacketSerializable * packet;
     switch ((uint8)header.type)
     {
     case Protocol::MQTT::V5::RESERVED: return fprintf(stderr, "Can not parse further...\n");
@@ -130,5 +130,14 @@ int main(int argc, char ** argv)
 packet->dump(out);
 //        return fprintf(stderr, "Could not dump the packet\n");
     printf("%s\n", (const char*)out);
+
+    // Adding packet hexdump too is useful for debugging
+    printf("\nFrom input buffer:");
+    for (size_t i = 0; i < inSize; i++)
+    {
+        if (!(i%16)) printf("\n%08X ", i);
+        printf("%02X ", inBuffer[i]);
+    }
+    printf("\n");
     return 0;
 }
