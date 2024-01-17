@@ -8,14 +8,14 @@
     #include <linux/rtnetlink.h>
     #include <linux/sockios.h>
 
-    typedef __uint32_t __u32;         /* hack to avoid including kernel header in userspace */
-    typedef __uint16_t __u16;         /* ditto */
-    typedef __uint8_t __u8;           /* ditto */
+    typedef uint32_t __u32;         /* hack to avoid including kernel header in userspace */
+    typedef uint16_t __u16;         /* ditto */
+    typedef uint8_t __u8;           /* ditto */
     // For camir version of #include <linux/ethtool.h>
-    typedef __uint32_t  u32;            /* hack to avoid including kernel header in userspace */
-    typedef __uint16_t  u16;            /* ditto */
-    typedef __uint8_t   u8;             /* ditto */
-    typedef __uint64_t  u64;            /* ditto */
+    typedef uint32_t  u32;            /* hack to avoid including kernel header in userspace */
+    typedef uint16_t  u16;            /* ditto */
+    typedef uint8_t   u8;             /* ditto */
+    typedef uint64_t  u64;            /* ditto */
     #include <linux/ethtool.h>
 
 int getEthernetRate(int sock, struct ifreq * item)
