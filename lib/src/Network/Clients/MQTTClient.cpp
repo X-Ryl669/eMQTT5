@@ -593,7 +593,7 @@ namespace Network { namespace Client {
 #if MQTTDumpCommunication == 1
                     char verify_buf[100] = {0};
                     mbedtls_x509_crt_verify_info(verify_buf, sizeof(verify_buf), "  ! ", flags);
-                    printf("mbedtls_ssl_get_verify_result: %s flag: 0x%x\n", verify_buf, flags);
+                    printf("mbedtls_ssl_get_verify_result: %s flag: 0x%x\n", verify_buf, (unsigned int)flags);
 #endif
                     return -11;
                 }

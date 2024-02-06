@@ -479,8 +479,6 @@ namespace Protocol
                 /** Capture from a dynamic string here.
                     Beware of this method as the source must outlive this instance */
                 DynamicStringView & operator = (const char * string) { length = strlen(string); data = string; return *this; }
-                /** Basic operator */
-                DynamicStringView & operator = (const DynamicStringView & source) { length = source.length; data = source.data; return *this; }
 
                 /** Comparison operator */
                 bool operator != (const DynamicStringView & other) const { return length != other.length || memcmp(data, other.data, length); }
@@ -541,8 +539,6 @@ namespace Protocol
 
                 /** Default constructor */
                 DynamicStringPairView(const DynamicStringView & k = "", const DynamicStringView & v = "") : key(k), value(v) {}
-                /** Copy constructor */
-                DynamicStringPairView(const DynamicStringPairView & other) : key(other.key), value(other.value) {}
 #if HasCPlusPlus11 == 1
                 /** Move constructor */
                 DynamicStringPairView(DynamicStringPair && other) : key(std::move(other.key)), value(std::move(other.value)) { }
@@ -596,9 +592,6 @@ namespace Protocol
                 /** Capture from a dynamic string here.
                     Beware of this method as the source must outlive this instance */
                 DynamicBinDataView & operator = (const DynamicBinaryData & source) { length = source.length; data = source.data; return *this; }
-                /** Basic operator */
-                DynamicBinDataView & operator = (const DynamicBinDataView & source) { length = source.length; data = source.data; return *this; }
-
             };
 
 #pragma pack(pop)
@@ -624,6 +617,15 @@ namespace Protocol
                 };
                 /** The actual used size for transmitting the value, in bytes */
                 uint16  size;
+
+
+                /** Copy operator */
+                VBInt & operator =(const VBInt & other) 
+                {
+                    word = other.word; 
+                    size = other.size;
+                    return *this;
+                } 
 
                 /** Set the value. This algorithm is 26% faster compared to the basic method shown in the standard */
                 VBInt & operator = (uint32 other)
@@ -912,7 +914,7 @@ namespace Protocol
             struct FixedHeaderType Final : public FixedHeaderBase
             {
                 bool                check() const { return getFlags() == flags; }
-                static bool         check(const uint8 flag) { return flag == flags; }
+                static bool         checkFlag(const uint8 flag) { return flag == flags; }
 
                 FixedHeaderType() : FixedHeaderBase(type, flags) {}
             };
@@ -929,7 +931,7 @@ namespace Protocol
                 void setRetain(const bool e)    { typeAndFlags = (typeAndFlags & ~0x1) | (e ? 1 : 0); }
                 void setQoS(const uint8 e)      { typeAndFlags = (typeAndFlags & ~0x6) | (e < 3 ? (e << 1) : 0); }
 
-                static bool         check(const uint8 flag) { return true; }
+                static bool         checkFlag(const uint8 flag) { return true; }
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type PUBLISH, retain %d, QoS %d, dup %d)\n", (int)indent, "", isRetain(), getQoS(), isDup()); }
 #endif
@@ -1394,12 +1396,12 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value.value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     LittleEndianPODVisitor<T> * view = visitor.as< LittleEndianPODVisitor<T> >();
                     if (!view) return false;
-                    return view->acceptBuffer((const uint8*)value.raw(), value.typeSize()) == value.typeSize();
+                    return view->acceptBuffer((const uint8*)const_cast< GenericType<T>& >(value).raw(), value.typeSize()) == value.typeSize();
                 }
 
                 /** The default constructor */
@@ -1423,12 +1425,12 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value.value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     PODVisitor<uint8> * view = visitor.as< PODVisitor<uint8> >();
                     if (!view) return false;
-                    return view->acceptBuffer((const uint8*)value.raw(), value.typeSize()) == value.typeSize();
+                    return view->acceptBuffer((const uint8*)const_cast< GenericType<uint8>& >(value).raw(), value.typeSize()) == value.typeSize();
                 }
 
                 /** The default constructor */
@@ -1473,7 +1475,7 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     DynamicStringView * view = visitor.as<DynamicStringView>();
@@ -1524,7 +1526,7 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     DynamicBinDataView * view = visitor.as<DynamicBinDataView>();
@@ -1574,7 +1576,7 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     DynamicStringPairView * view = visitor.as<DynamicStringPairView>();
@@ -1626,7 +1628,7 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     DynamicStringView * view = visitor.as<DynamicStringView>();
@@ -1676,7 +1678,7 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     DynamicBinDataView * view = visitor.as<DynamicBinDataView>();
@@ -1725,7 +1727,7 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     DynamicStringPairView * view = visitor.as<DynamicStringPairView>();
@@ -1776,7 +1778,7 @@ namespace Protocol
                 /** Clone this property */
                 PropertyBase * clone() const { return new Property((PropertyType)type, value, true); }
                 /** Accept a visitor for this type */
-                bool acceptVisitor(VisitorVariant & visitor)
+                bool acceptVisitor(VisitorVariant & visitor) const
                 {
                     if (!PropertyBase::acceptVisitor(visitor)) return false;
                     MappedVBInt* view = visitor.as<MappedVBInt>();
@@ -2015,8 +2017,6 @@ namespace Protocol
                     const uint32 offset = visitor.getOffset();
                     const PropertyBase * u = getProperty((size_t)offset);
                     if (!u) return false;
-                    uint32 length = u->getSize();
-
                     // Then copy or take a view on the property value
                     if (!u->acceptVisitor(visitor)) return false;
                     visitor.setOffset(offset + 1);
@@ -2586,7 +2586,7 @@ namespace Protocol
 #if MQTTAvoidValidation != 1
                 bool check() const { return value.check(); }
 #endif
-                GenericType<ConnectHeaderImpl>(ConnectHeaderImpl & v) : value(v) {}
+                GenericType(ConnectHeaderImpl & v) : value(v) {}
             };
 
             /** The fixed field for CONNECT packet */
@@ -2601,7 +2601,7 @@ namespace Protocol
                 }
 #endif
                 /** The default constructor */
-                FixedField<CONNECT>() : FixedFieldGeneric(_v), _v(*this) {}
+                FixedField() : FixedFieldGeneric(_v), _v(*this) {}
             };
 
 #pragma pack(push, 1)
@@ -2628,7 +2628,7 @@ namespace Protocol
                 void * raw() { return &value; }
                 GenericType<ConnACKHeaderImpl> & operator = (const ConnACKHeaderImpl & o) { value = o; return *this; }
                 operator ConnACKHeaderImpl& () { return value; }
-                GenericType<ConnACKHeaderImpl>(ConnACKHeaderImpl & v) : value(v) {}
+                GenericType(ConnACKHeaderImpl & v) : value(v) {}
             };
 
 
@@ -2642,7 +2642,7 @@ namespace Protocol
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sCONNACK packet (ack %u, reason %u)\n", (int)indent, "", acknowledgeFlag, reasonCode); }
 #endif
                 /** The default constructor */
-                FixedField<CONNACK>() : FixedFieldGeneric(_v), _v(*this) {}
+                FixedField() : FixedFieldGeneric(_v), _v(*this) {}
             };
 
             /** Some packets, like DISCONNECT, CONNACK, ... can be shorter and in that case, return a Shortcut return value */
@@ -2716,7 +2716,7 @@ namespace Protocol
                 GenericType<IDAndReason> & operator = (const IDAndReason & o) { value = o; return *this; }
                 operator IDAndReason& () { return value; }
 
-                GenericType<IDAndReason>(IDAndReason & v) : value(v) {}
+                GenericType(IDAndReason & v) : value(v) {}
             };
 
 
@@ -2797,7 +2797,7 @@ namespace Protocol
                 GenericType<TopicAndID> & operator = (const TopicAndID & o) { value = o; return *this; }
                 operator TopicAndID& () { return value; }
 
-                GenericType<TopicAndID>(TopicAndID & v) : value(v) {}
+                GenericType(TopicAndID & v) : value(v) {}
             };
 
             /** The fixed field for the PUBLISH packet.
@@ -2846,7 +2846,7 @@ namespace Protocol
 #endif
 
                 /** The default constructor */
-                FixedField<PUBLISH>() : FixedFieldGeneric(_v), _v(*this), flags(0) { }
+                FixedField() : FixedFieldGeneric(_v), _v(*this), flags(0) { }
 
             private:
                 /** The main header flags */
@@ -3040,9 +3040,9 @@ namespace Protocol
                 }
 #endif
 
-                Payload<CONNECT>() : willMessage(0), fixedHeader(0) {}
+                Payload() : willMessage(0), fixedHeader(0) {}
 #if MQTTClientOnlyImplementation != 1
-                ~Payload<CONNECT>() { delete0(willMessage); }
+                ~Payload() { delete0(willMessage); }
 #endif
 
             private:
@@ -3202,8 +3202,8 @@ namespace Protocol
 #endif
 
 
-                Payload<SUBSCRIBE>() : topics(0), expSize(0) {}
-                ~Payload<SUBSCRIBE>() { if (topics) topics->suicide(); topics = 0; }
+                Payload() : topics(0), expSize(0) {}
+                ~Payload() { if (topics) topics->suicide(); topics = 0; }
             private:
                 uint32 expSize;
             };
@@ -3249,8 +3249,8 @@ namespace Protocol
 #endif
 
 
-                Payload<UNSUBSCRIBE>() : topics(0), expSize(0) {}
-                ~Payload<UNSUBSCRIBE>() { if (topics) topics->suicide(); topics = 0; }
+                Payload() : topics(0), expSize(0) {}
+                ~Payload() { if (topics) topics->suicide(); topics = 0; }
             private:
                 uint32 expSize;
             };
