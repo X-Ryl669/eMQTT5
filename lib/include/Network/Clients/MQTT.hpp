@@ -40,13 +40,18 @@ namespace Network
             virtual uint32 maxPacketSize() const { return 2048U; }
 
 #if MQTTUseAuth == 1
-            /** An authentication packet was received. 
-                @param reasonCode       Any of Success, ContinueAuthentication, ReAuthenticate
+            /** An authentication packet was received.
+                This is called either during connection and in the event loop in case the server started it
+                @param reasonCode       Any of Success, ContinueAuthentication, ReAuthenticate or NotAuthorized, BadAuthenticationMethod
                 @param authMethod       The authentication method
                 @param authData         The authentication data
                 @param properties       If any attached to the packet, you'll find the list here. 
+                @return true            If authentication was a success or false otherwise
                 @warning By default, no action is done upon authentication packets. It's up to you to implement those packets */
-            virtual void authReceived(const ReasonCodes reasonCode, const DynamicStringView & authMethod, const DynamicBinDataView & authData, const PropertiesView & properties) { }
+            virtual bool authReceived(const ReasonCodes reasonCode, const DynamicStringView & authMethod, const DynamicBinDataView & authData, const PropertiesView & properties) 
+            { 
+                return false; 
+            }
 #endif
             virtual ~MessageReceived() {}
         };

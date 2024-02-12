@@ -86,7 +86,7 @@ namespace Network { namespace Client {
         /** The publish current default identifier allocator */
         uint16                          publishCurrentId;    
         /** The keep alive delay in seconds */
-        uint16                          keepAlive;  
+        uint16                          keepAlive;
 
 
         /** The reading state. Because data on a TCP stream is 
@@ -109,6 +109,12 @@ namespace Network { namespace Client {
         /** The receiving VBInt size for the packet header */
         uint8               packetExpectedVBSize;
 
+  #if MQTTUseAuth == 1
+        /** Used to track the origin of the AUTH exchange */
+        bool                inConnect;
+  #endif
+
+
         uint16 allocatePacketID()
         {
             return ++publishCurrentId;
@@ -119,6 +125,9 @@ namespace Network { namespace Client {
   #if MQTTUseTLS == 1
                sslContext(0),
   #endif 
+  #if MQTTUseAuth == 1
+               inConnect(false),
+  #endif
                clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
@@ -339,6 +348,113 @@ namespace Network { namespace Client {
             if (socket->select(false, true, timeoutMs)) return 0;
             return -7;
         }
+
+        MQTTv5::ErrorType handleAuth()
+        {
+            Protocol::MQTT::V5::ROAuthPacket packet;
+            int ret = extractControlPacket(type, packet);
+            if (ret > 0)
+            {
+                // Parse the Auth packet and call the user method
+                // Try to find the auth method, and the auth data
+                DynamicStringView authMethod;
+                DynamicBinDataView authData;
+                Protocol::MQTT::V5::VisitorVariant visitor;
+                while (packet.props.getProperty(visitor) && (authMethod.length == 0 || authData.length == 0))
+                {
+                    if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationMethod)
+                    {
+                        auto view = visitor.as< DynamicStringView >();
+                        authMethod = *view;
+                    }
+                    else if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationData)
+                    {
+                        auto data = visitor.as< DynamicBinDataView >();
+                        authData = *data;
+                    }
+                }
+                return cb->authReceived(packet.fixedVariableHeader.reason(), authMethod, authData, packet.props) ? MQTTv5::ErrorType::Success : MQTTv5::ErrorType::NetworkError;
+            }
+            return ErrorType::NetworkError;
+        }
+        MQTTv5::ErrorType handleConnACK()
+        {
+            // Parse the ConnACK packet;
+            Protocol::MQTT::V5::ROConnACKPacket packet;
+            int ret = extractControlPacket(type, packet);
+            if (ret > 0)
+            {
+                // We are only interested in the result of the connection
+                if (packet.fixedVariableHeader.acknowledgeFlag & 1)
+                {   // Session is present on the server. For now, we don't care, do we ?
+
+                }
+                if (packet.fixedVariableHeader.reasonCode != 0
+#if MQTTUseAuth == 1        
+                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::NotAuthorized
+                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::BadAuthenticationMethod          
+#endif                
+                )
+                {
+                    // We have failed connection with the following reason:
+                    return (MQTTv5::ReasonCodes)packet.fixedVariableHeader.reasonCode;
+                }
+                // Now, we are going to parse the other properties
+#if MQTTUseAuth == 1        
+                DynamicStringView authMethod;
+                DynamicBinDataView authData;
+#endif
+                Protocol::MQTT::V5::VisitorVariant visitor;
+                while (packet.props.getProperty(visitor))
+                {
+                    switch (visitor.propertyType())
+                    {
+                    case Protocol::MQTT::V5::PacketSizeMax:
+                    {
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint32> >();
+                        maxPacketSize = pod->getValue();
+                        break;
+                    }
+                    case Protocol::MQTT::V5::AssignedClientID:
+                    {
+                        auto view = visitor.as< Protocol::MQTT::V5::DynamicStringView >();
+                        clientID.from(view->data, view->length); // This allocates memory for holding the copy
+                        break;
+                    }
+                    case Protocol::MQTT::V5::ServerKeepAlive:
+                    {
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >(); 
+                        keepAlive = (pod->getValue() + (pod->getValue()>>1)) >> 1; // Use 0.75 of the server's told value
+                        break;
+                    }
+#if MQTTUseAuth == 1
+                    case Protocol::MQTT::V5::AuthenticationMethod:
+                    {
+                        auto view = visitor.as<DynamicStringView>(); 
+                        authMethod = *view;
+                    } break;
+                    case Protocol::MQTT::V5::AuthenticationData:
+                    {
+                        auto data = visitor.as<DynamicBinDataView>();
+                        authData = *data;
+                    } break;
+#endif
+                    // Actually, we don't care about other properties. Maybe we should ?
+                    default: break;
+                    }
+                }
+#if MQTTUseAuth == 1
+                if (packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::NotAuthorized
+                 || packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::BadAuthenticationMethod)
+                {   // Let the user be aware of the required authentication properties so next connect will/can contains them
+                    return cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props) ? ErrorType::Success : ErrorType::NetworkError;
+                }
+#endif 
+                return ErrorType::Success;
+            }
+            return Protocol::MQTT::V5::ProtocolError;
+        }
+
     };
 #else
 #ifndef MQTTLock
@@ -669,6 +785,10 @@ namespace Network { namespace Client {
         uint16                      publishCurrentId;    
         /** The keep alive delay in seconds */
         uint16                      keepAlive;
+#if MQTTUseAuth == 1
+        /** Used to track the origin of the AUTH exchange */
+        bool                        inConnect;
+#endif
 #if MQTTUseUnsubscribe == 1        
         /** The last unsubscribe id */
         uint16                      unsubscribeId;
@@ -703,6 +823,9 @@ namespace Network { namespace Client {
 
         Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
              : socket(0), brokerCert(brokerCert), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+#if MQTTUseAuth == 1
+               inConnect(false),
+#endif
 #if MQTTUseUnsubscribe == 1        
                unsubscribeId(0), lastUnsubscribeError(ErrorType::WaitingForResult),
 #endif
@@ -877,6 +1000,114 @@ namespace Network { namespace Client {
                 new BaseSocket(timeoutMs);
             return socket ? socket->connect(host, port, brokerCert) : -1;
         }
+
+#if MQTTUseAuth == 1
+        MQTTv5::ErrorType handleAuth()
+        {
+            Protocol::MQTT::V5::ROAuthPacket packet;
+            int ret = extractControlPacket(Protocol::MQTT::V5::AUTH, packet);
+            if (ret > 0)
+            {
+                // Parse the Auth packet and call the user method
+                // Try to find the auth method, and the auth data
+                DynamicStringView authMethod;
+                DynamicBinDataView authData;
+                Protocol::MQTT::V5::VisitorVariant visitor;
+                while (packet.props.getProperty(visitor) && (authMethod.length == 0 || authData.length == 0))
+                {
+                    if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationMethod)
+                    {
+                        auto view = visitor.as< DynamicStringView >();
+                        authMethod = *view;
+                    }
+                    else if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationData)
+                    {
+                        auto data = visitor.as< DynamicBinDataView >();
+                        authData = *data;
+                    }
+                }
+                return cb->authReceived(packet.fixedVariableHeader.reason(), authMethod, authData, packet.props) ? MQTTv5::ErrorType::Success : MQTTv5::ErrorType::NetworkError;
+            }
+            return ErrorType::NetworkError;
+        }
+#endif
+        MQTTv5::ErrorType handleConnACK()
+        {
+            // Parse the ConnACK packet;
+            Protocol::MQTT::V5::ROConnACKPacket packet;
+            int ret = extractControlPacket(Protocol::MQTT::V5::CONNACK, packet);
+            if (ret > 0)
+            {
+                // We are only interested in the result of the connection
+                if (packet.fixedVariableHeader.acknowledgeFlag & 1)
+                {   // Session is present on the server. For now, we don't care, do we ?
+
+                }
+                if (packet.fixedVariableHeader.reasonCode != 0
+#if MQTTUseAuth == 1
+                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::NotAuthorized
+                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::BadAuthenticationMethod          
+#endif                
+                )
+                {
+                    // We have failed connection with the following reason:
+                    return (MQTTv5::ReasonCodes)packet.fixedVariableHeader.reasonCode;
+                }
+                // Now, we are going to parse the other properties
+#if MQTTUseAuth == 1        
+                DynamicStringView authMethod;
+                DynamicBinDataView authData;
+#endif
+                Protocol::MQTT::V5::VisitorVariant visitor;
+                while (packet.props.getProperty(visitor))
+                {
+                    switch (visitor.propertyType())
+                    {
+                    case Protocol::MQTT::V5::PacketSizeMax:
+                    {
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint32> >();
+                        maxPacketSize = pod->getValue();
+                        break;
+                    }
+                    case Protocol::MQTT::V5::AssignedClientID:
+                    {
+                        auto view = visitor.as< Protocol::MQTT::V5::DynamicStringView >();
+                        clientID.from(view->data, view->length); // This allocates memory for holding the copy
+                        break;
+                    }
+                    case Protocol::MQTT::V5::ServerKeepAlive:
+                    {
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >(); 
+                        keepAlive = (pod->getValue() + (pod->getValue()>>1)) >> 1; // Use 0.75 of the server's told value
+                        break;
+                    }
+#if MQTTUseAuth == 1
+                    case Protocol::MQTT::V5::AuthenticationMethod:
+                    {
+                        auto view = visitor.as<DynamicStringView>(); 
+                        authMethod = *view;
+                    } break;
+                    case Protocol::MQTT::V5::AuthenticationData:
+                    {
+                        auto data = visitor.as<DynamicBinDataView>();
+                        authData = *data;
+                    } break;
+#endif
+                    // Actually, we don't care about other properties. Maybe we should ?
+                    default: break;
+                    }
+                }
+#if MQTTUseAuth == 1
+                if (packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::NotAuthorized
+                 || packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::BadAuthenticationMethod)
+                {   // Let the user be aware of the required authentication properties so next connect will/can contains them
+                    return cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props) ? ErrorType::Success : ErrorType::NetworkError;
+                }
+#endif 
+                return ErrorType::Success;
+            }
+            return Protocol::MQTT::V5::ProtocolError;
+        }
     };
 #endif
 
@@ -969,109 +1200,55 @@ namespace Network { namespace Client {
         Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
         if (type == Protocol::MQTT::V5::CONNACK)
         {
-            // Parse the ConnACK packet;
-            Protocol::MQTT::V5::ROConnACKPacket packet;
-            int ret = impl->extractControlPacket(type, packet);
-            if (ret > 0)
-            {
-                // We are only interested in the result of the connection
-                if (packet.fixedVariableHeader.acknowledgeFlag & 1)
-                {   // Session is present on the server. For now, we don't care, do we ?
-
-                }
-                if (packet.fixedVariableHeader.reasonCode != 0
-#if MQTTUseAuth == 1        
-                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::NotAuthorized
-                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::BadAuthenticationMethod          
-#endif                
-                )
-                {
-                    // We have failed connection with the following reason:
-                    impl->close();
-                    return (MQTTv5::ReasonCodes)packet.fixedVariableHeader.reasonCode;
-                }
-                // Now, we are going to parse the other properties
-#if MQTTUseAuth == 1        
-                DynamicStringView authMethod;
-                DynamicBinDataView authData;
-#endif
-                Protocol::MQTT::V5::VisitorVariant visitor;
-                while (packet.props.getProperty(visitor))
-                {
-                    switch (visitor.propertyType())
-                    {
-                    case Protocol::MQTT::V5::PacketSizeMax:
-                    {
-                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint32> >();
-                        impl->maxPacketSize = pod->getValue();
-                        break;
-                    }
-                    case Protocol::MQTT::V5::AssignedClientID:
-                    {
-                        auto view = visitor.as< Protocol::MQTT::V5::DynamicStringView >();
-                        impl->clientID.from(view->data, view->length); // This allocates memory for holding the copy
-                        break;
-                    }
-                    case Protocol::MQTT::V5::ServerKeepAlive:
-                    {
-                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >(); 
-                        impl->keepAlive = (pod->getValue() + (pod->getValue()>>1)) >> 1; // Use 0.75 of the server's told value
-                        break;
-                    }
-#if MQTTUseAuth == 1        
-                    case Protocol::MQTT::V5::AuthenticationMethod:
-                    {
-                        auto view = visitor.as<DynamicStringView>(); 
-                        authMethod = *view;
-                    } break;
-                    case Protocol::MQTT::V5::AuthenticationData:
-                    {
-                        auto data = visitor.as<DynamicBinDataView>();
-                        authData = *data;
-                    } break;
-#endif
-                    // Actually, we don't care about other properties. Maybe we should ?
-                    default: break;
-                    }
-                }
+            ErrorType ret = impl->handleConnACK();
 #if MQTTUseAuth == 1
-                if (packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::NotAuthorized
-                 || packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::BadAuthenticationMethod)
-                {   // Let the user be aware of the required authentication properties so next connect will/can contains them
-                    impl->cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props);
-                    return (ReasonCodes)packet.fixedVariableHeader.reasonCode;
-                }
-#endif 
-                return ErrorType::Success;
-            }
+            // No special treatment anymore for AUTH packets
+            impl->inConnect = false;
+#endif
+            if (ret != ErrorType::Success)
+                impl->close();
+            return ret;
         }
 #if MQTTUseAuth == 1        
         else if (type == Protocol::MQTT::V5::AUTH)
         {
-            Protocol::MQTT::V5::ROAuthPacket packet;
-            int ret = impl->extractControlPacket(type, packet);
-            if (ret > 0)
-            {
-                // Parse the Auth packet and call the user method
-                // Try to find the auth method, and the auth data
-                DynamicStringView authMethod;
-                DynamicBinDataView authData;
-                Protocol::MQTT::V5::VisitorVariant visitor;
-                while (packet.props.getProperty(visitor) && (authMethod.length == 0 || authData.length == 0))
+            // Authentication need to know if we are in a CONNECT/CONNACK process since it behaves differently in that case
+            impl->inConnect = true;
+            
+            if (impl->handleAuth() == ErrorType::Success) 
+            { // We need to receive either a CONNACK or a AUTH packet now, so let's do that until we're done
+                while (true) 
                 {
-                    if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationMethod)
+                    // Check the server for any packet...
+                    int r = impl->receiveControlPacket();
+                    if (r <= 0)
                     {
-                        auto view = visitor.as< DynamicStringView >();
-                        authMethod = *view;
+                        impl->close();
+                        return ErrorType::NetworkError;
                     }
-                    else if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationData)
+                    // Ok, now we have a packet read it
+                    type = impl->getLastPacketType();
+                    if (type == Protocol::MQTT::V5::CONNACK) 
                     {
-                        auto data = visitor.as< DynamicBinDataView >();
-                        authData = *data;
+                        ErrorType ret = impl->handleConnACK();
+                        if (ret != ErrorType::Success)
+                            impl->close();
+                        return ret;
                     }
+                    else if (type == Protocol::MQTT::V5::AUTH) 
+                    {
+                        if (ErrorType ret = impl->handleAuth()) 
+                        {   // In case of authentication error, let's report back up
+                            impl->close();
+                            return ret;
+                        }   // Else, let's continue the Authentication dance
+                    }
+                    else 
+                    {
+                        impl->close();
+                        return Protocol::MQTT::V5::ProtocolError;
+                    } 
                 }
-                impl->cb->authReceived(packet.fixedVariableHeader.reason(), authMethod, authData, packet.props);
-                return ErrorType::Success;
             }
         }
 #endif
@@ -1428,6 +1605,13 @@ namespace Network { namespace Client {
             impl->unsubscribeId = 0;
         }
 #endif
+#if MQTTUseAuth == 1
+        case Protocol::MQTT::V5::AUTH:
+        {
+            return impl->handleAuth();
+        }
+#endif
+
         default: // Ignore all other packets currently 
             break;
         }
