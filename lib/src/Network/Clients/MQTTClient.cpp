@@ -1219,13 +1219,6 @@ namespace Network { namespace Client {
             { // We need to receive either a CONNACK or a AUTH packet now, so let's do that until we're done
                 while (true) 
                 {
-                    // Check the server for any packet...
-                    int r = impl->receiveControlPacket();
-                    if (r <= 0)
-                    {
-                        impl->close();
-                        return ErrorType::NetworkError;
-                    }
                     // Ok, now we have a packet read it
                     type = impl->getLastPacketType();
                     if (type == Protocol::MQTT::V5::CONNACK) 
@@ -1318,6 +1311,9 @@ namespace Network { namespace Client {
                 impl->cb->authReceived(packet.fixedVariableHeader.reason(), authMethod, authData, packet.props);
                 return ErrorType::Success;
             }
+        } else if (type == Protocol::MQTT::V5::CONNACK && impl->inConnect)
+        {   // We don't signal any error here, it's up to the parent's connectTo to check this packet
+            return ErrorType::Success;
         }
         return Protocol::MQTT::V5::ProtocolError;      
     }
