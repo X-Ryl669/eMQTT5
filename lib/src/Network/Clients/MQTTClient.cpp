@@ -1,9 +1,18 @@
 // We need our implementation
 #include <Network/Clients/MQTT.hpp>
 
+#if MQTTUseAuth == 1
+  /** Used to track reentrancy in the AUTH recursive scheme */
+  enum AuthReentrancy
+  {
+     FromConnect = 0x80000000,
+     AuthMask    = 0x7FFFFFFF,
+  };
+#endif
+
 
 #if MQTTOnlyBSDSocket != 1
-#pragma message("This configuration is not supported and depends on external code in tests folder that is not exported upon install") 
+#pragma message("This configuration is not supported and depends on external code in tests folder that is not exported upon install")
 // We need socket declaration
 #include "Network/Socket.hpp"
 // We need SSL socket declaration too
@@ -75,7 +84,7 @@ namespace Network { namespace Client {
         SSLContext *                    sslContext;
   #endif
         /** This client unique identifier */
-        DynamicString                   clientID; 
+        DynamicString                   clientID;
         /** The message received callback to use */
         MessageReceived *               cb;
         /** The default timeout in milliseconds */
@@ -84,16 +93,16 @@ namespace Network { namespace Client {
         /** The last communication time in second */
         uint32                          lastCommunication;
         /** The publish current default identifier allocator */
-        uint16                          publishCurrentId;    
+        uint16                          publishCurrentId;
         /** The keep alive delay in seconds */
         uint16                          keepAlive;
 
 
-        /** The reading state. Because data on a TCP stream is 
+        /** The reading state. Because data on a TCP stream is
             a stream, we have to remember what state we are currently following while parsing data */
         enum RecvState
         {
-            Ready = 0, 
+            Ready = 0,
             GotType,
             GotLength,
             GotCompletePacket,
@@ -111,7 +120,7 @@ namespace Network { namespace Client {
 
   #if MQTTUseAuth == 1
         /** Used to track the origin of the AUTH exchange */
-        bool                inConnect;
+        uint32                authSource;
   #endif
 
 
@@ -121,19 +130,19 @@ namespace Network { namespace Client {
         }
 
         Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
-             : socket(0), brokerCert(brokerCert), 
+             : socket(0), brokerCert(brokerCert),
   #if MQTTUseTLS == 1
                sslContext(0),
-  #endif 
+  #endif
   #if MQTTUseAuth == 1
-               inConnect(false),
+               authSource(0),
   #endif
                clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
         ~Impl() { delete socket; socket = 0; ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
 
-        
+
         inline void setTimeout(uint32 timeout) { timeoutMs = timeout; }
 
         bool shouldPing()
@@ -159,9 +168,9 @@ namespace Network { namespace Client {
         {
             Protocol::MQTT::Common::VBInt l;
             return l.readFrom(recvBuffer + 1, available - 1) != Protocol::MQTT::Common::BadData;
-        } 
+        }
 
-        /** Receive a control packet from the socket in the given time. 
+        /** Receive a control packet from the socket in the given time.
             @retval positive    The number of bytes received
             @retval 0           Protocol error, you should close the socket
             @retval -1          Socket error
@@ -190,7 +199,7 @@ namespace Network { namespace Client {
             case Ready:
             case GotType:
             {   // Here, make sure we only fetch the length first
-                // The minimal size is 2 bytes for PINGRESP, DISCONNECT and AUTH. 
+                // The minimal size is 2 bytes for PINGRESP, DISCONNECT and AUTH.
                 // Because of this, we can't really outsmart the system everytime
                 ret = socket->receiveReliably((char*)&recvBuffer[available], 2 - available, timeout);
                 if (ret > 0) available += ret;
@@ -222,9 +231,9 @@ namespace Network { namespace Client {
             if (r == Protocol::MQTT::Common::NotEnoughData)
             {
                 if (available >= (packetExpectedVBSize+1))
-                {   // The server sends us a packet that's larger than the expected maximum size, 
+                {   // The server sends us a packet that's larger than the expected maximum size,
                     // In MQTTv5 it's a protocol error, so let's disconnect
-                    return 0; 
+                    return 0;
                 }
                 // We haven't received enough data in the given timeout to make progress, let's report a timeout
                 recvState = GotType;
@@ -283,7 +292,7 @@ namespace Network { namespace Client {
             // Seems to be the expected type, let's unserialize it
             uint32 r = packet.readFrom(recvBuffer, recvBufferSize);
             if (Protocol::MQTT::Common::isError(r)) return -4; // Parsing error
-            
+
             // Done with receiving the packet let's remember it
             resetPacketReceivingState();
 
@@ -314,7 +323,7 @@ namespace Network { namespace Client {
             if (withTLS)
             {
   #if MQTTUseTLS == 1
-                if (!sslContext) 
+                if (!sslContext)
                 {   // If one certificate is given let's use it instead of the default CA bundle
                     sslContext = brokerCert ? new SSLContext(NULL, Crypto::SSLContext::Any) : new SSLContext();
                 }
@@ -333,7 +342,7 @@ namespace Network { namespace Client {
                 return -1;
   #endif
             } else socket = new Socket(Network::Socket::BaseSocket::Stream);
-            
+
             if (!socket) return -2;
             // Let the socket be asynchronous and without Nagle's algorithm
             if (!socket->setOption(Network::Socket::BaseSocket::Blocking, 0)) return -3;
@@ -390,17 +399,17 @@ namespace Network { namespace Client {
 
                 }
                 if (packet.fixedVariableHeader.reasonCode != 0
-#if MQTTUseAuth == 1        
+#if MQTTUseAuth == 1
                     && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::NotAuthorized
-                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::BadAuthenticationMethod          
-#endif                
+                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::BadAuthenticationMethod
+#endif
                 )
                 {
                     // We have failed connection with the following reason:
                     return (MQTTv5::ReasonCodes)packet.fixedVariableHeader.reasonCode;
                 }
                 // Now, we are going to parse the other properties
-#if MQTTUseAuth == 1        
+#if MQTTUseAuth == 1
                 DynamicStringView authMethod;
                 DynamicBinDataView authData;
 #endif
@@ -423,14 +432,14 @@ namespace Network { namespace Client {
                     }
                     case Protocol::MQTT::V5::ServerKeepAlive:
                     {
-                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >(); 
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >();
                         keepAlive = (pod->getValue() + (pod->getValue()>>1)) >> 1; // Use 0.75 of the server's told value
                         break;
                     }
 #if MQTTUseAuth == 1
                     case Protocol::MQTT::V5::AuthenticationMethod:
                     {
-                        auto view = visitor.as<DynamicStringView>(); 
+                        auto view = visitor.as<DynamicStringView>();
                         authMethod = *view;
                     } break;
                     case Protocol::MQTT::V5::AuthenticationData:
@@ -449,7 +458,7 @@ namespace Network { namespace Client {
                 {   // Let the user be aware of the required authentication properties so next connect will/can contains them
                     return cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props) ? ErrorType::Success : ErrorType::NetworkError;
                 }
-#endif 
+#endif
                 return ErrorType::Success;
             }
             return Protocol::MQTT::V5::ProtocolError;
@@ -458,7 +467,7 @@ namespace Network { namespace Client {
     };
 #else
 #ifndef MQTTLock
-    /* If you have a true lock object in your system (for example, in FreeRTOS, use a mutex), 
+    /* If you have a true lock object in your system (for example, in FreeRTOS, use a mutex),
        you should provide one instead of this one as this one just burns CPU while waiting */
     class SpinLock
     {
@@ -469,12 +478,12 @@ namespace Network { namespace Client {
         /** Acquire the lock */
         inline void acquire() volatile
         {
-            while (state.exchange(true, std::memory_order_acq_rel)) 
+            while (state.exchange(true, std::memory_order_acq_rel))
             {
                 // Put a sleep method here (using select here since it's cross platform in BSD socket API)
                 struct timeval tv;
                 tv.tv_sec = 0; tv.tv_usec = 500; // Wait 0.5ms per loop
-                select(0, NULL, NULL, NULL, &tv); 
+                select(0, NULL, NULL, NULL, &tv);
             }
         }
         /** Try to acquire the lock */
@@ -522,11 +531,11 @@ namespace Network { namespace Client {
 #endif
 
 #if MQTTUseTLS == 1
-    // Small optimization to remove useless virtual table in the final binary if not used 
+    // Small optimization to remove useless virtual table in the final binary if not used
     #define MQTTVirtual virtual
 #else
     #define MQTTVirtual
-#endif 
+#endif
 
     struct BaseSocket
     {
@@ -540,7 +549,7 @@ namespace Network { namespace Client {
 
             // Please notice that under linux, it's not required to set the socket
             // as non blocking if you define SO_SNDTIMEO, for connect timeout.
-            // so the code below could be optimized away. Yet, lwIP does show the 
+            // so the code below could be optimized away. Yet, lwIP does show the
             // same behavior so when a timeout for connection is actually required
             // you must issue a select call here.
 
@@ -575,7 +584,7 @@ namespace Network { namespace Client {
             if (ret == 0) return 0;
 
             // Here, we need to wait until connection happens or times out
-            if (select(false, true)) 
+            if (select(false, true))
             {
                 // Restore blocking behavior here
                 if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
@@ -637,7 +646,7 @@ namespace Network { namespace Client {
         mbedtls_ssl_config conf;
         mbedtls_x509_crt cacert;
         mbedtls_net_context net;
- 
+
     private:
         bool buildConf(const MQTTv5::DynamicBinDataView * brokerCert)
         {
@@ -655,11 +664,11 @@ namespace Network { namespace Client {
             ::mbedtls_ssl_conf_authmode(&conf, brokerCert ? MBEDTLS_SSL_VERIFY_REQUIRED : MBEDTLS_SSL_VERIFY_NONE);
 
             uint32_t ms = timeoutMs.tv_usec / 1000;
-            ::mbedtls_ssl_conf_read_timeout(&conf, ms < 50 ? 3000 : ms); 
+            ::mbedtls_ssl_conf_read_timeout(&conf, ms < 50 ? 3000 : ms);
 
             // Random number generator
             ::mbedtls_ssl_conf_rng(&conf, ::mbedtls_ctr_drbg_random, &entropySource);
-            if (::mbedtls_ctr_drbg_seed(&entropySource, ::mbedtls_entropy_func, &entropy, NULL, 0)) 
+            if (::mbedtls_ctr_drbg_seed(&entropySource, ::mbedtls_entropy_func, &entropy, NULL, 0))
                 return false;
 
             if (::mbedtls_ssl_setup(&ssl, &conf))
@@ -697,15 +706,15 @@ namespace Network { namespace Client {
             ::mbedtls_ssl_set_bio(&ssl, &net, ::mbedtls_net_send, NULL, ::mbedtls_net_recv_timeout);
 
             ret = ::mbedtls_ssl_handshake(&ssl);
-            if (ret != 0 && ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) 
+            if (ret != 0 && ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE)
                 return -10;
-                    
+
             // Check certificate if one provided
-            if (brokerCert) 
+            if (brokerCert)
             {
                 uint32_t flags = mbedtls_ssl_get_verify_result(&ssl);
                 if (flags != 0)
-                { 
+                {
 #if MQTTDumpCommunication == 1
                     char verify_buf[100] = {0};
                     mbedtls_x509_crt_verify_info(verify_buf, sizeof(verify_buf), "  ! ", flags);
@@ -731,7 +740,7 @@ namespace Network { namespace Client {
             while (ret < minLength)
             {
                 int r = ::mbedtls_ssl_read(&ssl, (uint8*)&buffer[ret], minLength - ret);
-                if (r <= 0) 
+                if (r <= 0)
                 {
                     // Those means that we need to call again the read method
                     if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE)
@@ -773,7 +782,7 @@ namespace Network { namespace Client {
         /** The DER encoded certificate (if provided) */
         const DynamicBinDataView *  brokerCert;
         /** This client unique identifier */
-        DynamicString               clientID; 
+        DynamicString               clientID;
         /** The message received callback to use */
         MessageReceived *           cb;
         /** The default timeout in milliseconds */
@@ -782,25 +791,25 @@ namespace Network { namespace Client {
         /** The last communication time in second */
         uint32                      lastCommunication;
         /** The publish current default identifier allocator */
-        uint16                      publishCurrentId;    
+        uint16                      publishCurrentId;
         /** The keep alive delay in seconds */
         uint16                      keepAlive;
 #if MQTTUseAuth == 1
-        /** Used to track the origin of the AUTH exchange */
-        bool                        inConnect;
+        /** Mask used to track the origin of the AUTH exchange and reentrancy issues */
+        uint32                      authSource;
 #endif
-#if MQTTUseUnsubscribe == 1        
+#if MQTTUseUnsubscribe == 1
         /** The last unsubscribe id */
         uint16                      unsubscribeId;
         /** The last unsubscribe error code */
-        MQTTv5::ErrorType::Type     lastUnsubscribeError; 
+        MQTTv5::ErrorType::Type     lastUnsubscribeError;
 #endif
 
-        /** The reading state. Because data on a TCP stream is 
+        /** The reading state. Because data on a TCP stream is
             a stream, we have to remember what state we are currently following while parsing data */
         enum RecvState
         {
-            Ready = 0, 
+            Ready = 0,
             GotType,
             GotLength,
             GotCompletePacket,
@@ -824,9 +833,9 @@ namespace Network { namespace Client {
         Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
              : socket(0), brokerCert(brokerCert), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
 #if MQTTUseAuth == 1
-               inConnect(false),
+               authSource(0),
 #endif
-#if MQTTUseUnsubscribe == 1        
+#if MQTTUseUnsubscribe == 1
                unsubscribeId(0), lastUnsubscribeError(ErrorType::WaitingForResult),
 #endif
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
@@ -848,9 +857,9 @@ namespace Network { namespace Client {
         {
             Protocol::MQTT::Common::VBInt l;
             return l.readFrom(recvBuffer + 1, available - 1) != Protocol::MQTT::Common::BadData;
-        } 
+        }
 
-        /** Receive a control packet from the socket in the given time. 
+        /** Receive a control packet from the socket in the given time.
             @retval positive    The number of bytes received
             @retval 0           Protocol error, you should close the socket
             @retval -1          Socket error
@@ -878,7 +887,7 @@ namespace Network { namespace Client {
             case Ready:
             case GotType:
             {   // Here, make sure we only fetch the length first
-                // The minimal size is 2 bytes for PINGRESP and shortcut DISCONNECT / AUTH. 
+                // The minimal size is 2 bytes for PINGRESP and shortcut DISCONNECT / AUTH.
                 // Because of this, we can't really outsmart the system everytime
                 ret = socket->recv((char*)&recvBuffer[available], 2 - available);
                 if (ret > 0) available += ret;
@@ -908,9 +917,9 @@ namespace Network { namespace Client {
             if (r == Protocol::MQTT::Common::NotEnoughData)
             {
                 if (available >= (packetExpectedVBSize+1))
-                {   // The server sends us a packet that's larger than the expected maximum size, 
+                {   // The server sends us a packet that's larger than the expected maximum size,
                     // In MQTTv5 it's a protocol error, so let's disconnect
-                    return 0; 
+                    return 0;
                 }
                 // We haven't received enough data in the given timeout to make progress, let's report a timeout
                 recvState = GotType;
@@ -963,7 +972,7 @@ namespace Network { namespace Client {
             // Seems to be the expected type, let's unserialize it
             uint32 r = packet.readFrom(recvBuffer, recvBufferSize);
             if (Protocol::MQTT::Common::isError(r)) return -4; // Parsing error
-            
+
             // Done with receiving the packet let's remember it
             resetPacketReceivingState();
 
@@ -993,7 +1002,7 @@ namespace Network { namespace Client {
         int connectWith(const char * host, const uint16 port, const bool withTLS)
         {
             if (isOpen()) return -1;
-            socket = 
+            socket =
 #if MQTTUseTLS == 1
                 withTLS ? new MBTLSSocket(timeoutMs) :
 #endif
@@ -1046,15 +1055,15 @@ namespace Network { namespace Client {
                 if (packet.fixedVariableHeader.reasonCode != 0
 #if MQTTUseAuth == 1
                     && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::NotAuthorized
-                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::BadAuthenticationMethod          
-#endif                
+                    && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::BadAuthenticationMethod
+#endif
                 )
                 {
                     // We have failed connection with the following reason:
                     return (MQTTv5::ReasonCodes)packet.fixedVariableHeader.reasonCode;
                 }
                 // Now, we are going to parse the other properties
-#if MQTTUseAuth == 1        
+#if MQTTUseAuth == 1
                 DynamicStringView authMethod;
                 DynamicBinDataView authData;
 #endif
@@ -1077,14 +1086,14 @@ namespace Network { namespace Client {
                     }
                     case Protocol::MQTT::V5::ServerKeepAlive:
                     {
-                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >(); 
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >();
                         keepAlive = (pod->getValue() + (pod->getValue()>>1)) >> 1; // Use 0.75 of the server's told value
                         break;
                     }
 #if MQTTUseAuth == 1
                     case Protocol::MQTT::V5::AuthenticationMethod:
                     {
-                        auto view = visitor.as<DynamicStringView>(); 
+                        auto view = visitor.as<DynamicStringView>();
                         authMethod = *view;
                     } break;
                     case Protocol::MQTT::V5::AuthenticationData:
@@ -1103,7 +1112,7 @@ namespace Network { namespace Client {
                 {   // Let the user be aware of the required authentication properties so next connect will/can contains them
                     return cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props) ? ErrorType::Success : ErrorType::NetworkError;
                 }
-#endif 
+#endif
                 return ErrorType::Success;
             }
             return Protocol::MQTT::V5::ProtocolError;
@@ -1111,7 +1120,7 @@ namespace Network { namespace Client {
     };
 #endif
 
-    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert) : impl(new Impl(clientID, callback, brokerCert)) {} 
+    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert) : impl(new Impl(clientID, callback, brokerCert)) {}
     MQTTv5::~MQTTv5() { delete impl; impl = 0; }
 
     MQTTv5::ErrorType::Type MQTTv5::prepareSAR(Protocol::MQTT::V5::ControlPacketSerializable & packet, bool withAnswer)
@@ -1127,7 +1136,7 @@ namespace Network { namespace Client {
 //      packet.dump(out, 2);
 //      printf("Prepared:\n%s\n", (const char*)out);
 #endif
-        // Make sure we are on a clean receiving state    
+        // Make sure we are on a clean receiving state
         impl->resetPacketReceivingState();
 
         if (impl->send((const char*)buffer, packetSize) != packetSize)
@@ -1145,15 +1154,15 @@ namespace Network { namespace Client {
         return ErrorType::Success;
     }
 
-    // Connect to the given server URL. 
+    // Connect to the given server URL.
     MQTTv5::ErrorType MQTTv5::connectTo(const char * serverHost, const uint16 port, bool useTLS, const uint16 keepAliveTimeInSec,
-        const bool cleanStart, const char * userName, const DynamicBinDataView * password, WillMessage * willMessage, const QoSDelivery willQoS, const bool willRetain, 
+        const bool cleanStart, const char * userName, const DynamicBinDataView * password, WillMessage * willMessage, const QoSDelivery willQoS, const bool willRetain,
         Properties * properties)
     {
         if (serverHost == nullptr || !port)
             return ErrorType::BadParameter;
 
-        // Please do not move the line below as it must outlive the packet 
+        // Please do not move the line below as it must outlive the packet
         Protocol::MQTT::V5::Property<uint32> maxProp(Protocol::MQTT::V5::PacketSizeMax, impl->recvBufferSize);
         Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::CONNECT> packet;
 
@@ -1176,7 +1185,7 @@ namespace Network { namespace Client {
         if (int ret = impl->connectWith(serverHost, port, useTLS))
             return ret == -7 ? ErrorType::TimedOut : ErrorType::NetworkError;
 
-        // Create the header object now 
+        // Create the header object now
         impl->keepAlive = (keepAliveTimeInSec + (keepAliveTimeInSec / 2)) / 2; // Make it 75% of what's given so we always wake up before doom's clock
         packet.fixedVariableHeader.keepAlive = keepAliveTimeInSec;
         packet.fixedVariableHeader.cleanStart = cleanStart ? 1 : 0;
@@ -1203,44 +1212,48 @@ namespace Network { namespace Client {
             ErrorType ret = impl->handleConnACK();
 #if MQTTUseAuth == 1
             // No special treatment anymore for AUTH packets
-            impl->inConnect = false;
+            impl->authSource = 0;
 #endif
             if (ret != ErrorType::Success)
                 impl->close();
             return ret;
         }
-#if MQTTUseAuth == 1        
+#if MQTTUseAuth == 1
         else if (type == Protocol::MQTT::V5::AUTH)
         {
             // Authentication need to know if we are in a CONNECT/CONNACK process since it behaves differently in that case
-            impl->inConnect = true;
-            
-            if (impl->handleAuth() == ErrorType::Success) 
+            impl->authSource |= FromConnect | 1;
+
+            if (impl->handleAuth() == ErrorType::Success)
             { // We need to receive either a CONNACK or a AUTH packet now, so let's do that until we're done
-                while (true) 
+                while (true)
                 {
                     // Ok, now we have a packet read it
                     type = impl->getLastPacketType();
-                    if (type == Protocol::MQTT::V5::CONNACK) 
+                    if (type == Protocol::MQTT::V5::CONNACK)
                     {
                         ErrorType ret = impl->handleConnACK();
                         if (ret != ErrorType::Success)
                             impl->close();
+
+                        impl->authSource = 0;
                         return ret;
                     }
-                    else if (type == Protocol::MQTT::V5::AUTH) 
+                    else if (type == Protocol::MQTT::V5::AUTH)
                     {
-                        if (ErrorType ret = impl->handleAuth()) 
+                        if (ErrorType ret = impl->handleAuth())
                         {   // In case of authentication error, let's report back up
                             impl->close();
+                            impl->authSource = 0;
                             return ret;
                         }   // Else, let's continue the Authentication dance
                     }
-                    else 
+                    else
                     {
                         impl->close();
+                        impl->authSource = 0;
                         return Protocol::MQTT::V5::ProtocolError;
-                    } 
+                    }
                 }
             }
         }
@@ -1251,12 +1264,19 @@ namespace Network { namespace Client {
     }
 
 #if MQTTUseAuth == 1
+    struct ConditionalScopedLock
+    {
+        Lock * a;
+        ConditionalScopedLock(Lock * a) : a(a) { if (a) a->acquire(); }
+        ~ConditionalScopedLock() { if (a) a->release(); }
+    };
+
     // Authenticate with the given server.
     MQTTv5::ErrorType MQTTv5::auth(const ReasonCodes reasonCode, const DynamicStringView & authMethod, const DynamicBinDataView & authData, Properties * properties)
     {
-        if (reasonCode != Protocol::MQTT::V5::Success || reasonCode != Protocol::MQTT::V5::ContinueAuthentication || reasonCode != Protocol::MQTT::V5::ReAuthenticate)
+        if (reasonCode != Protocol::MQTT::V5::Success && reasonCode != Protocol::MQTT::V5::ContinueAuthentication && reasonCode != Protocol::MQTT::V5::ReAuthenticate)
             return ErrorType::BadParameter;
-        if (!properties && (authMethod.length == 0 || authData.length == 0)) 
+        if (!properties && (authMethod.length == 0 || authData.length == 0))
             return ErrorType::BadParameter; // A auth method is required
 
         // Don't move this around, it must appear on stack until it's no more used
@@ -1265,7 +1285,7 @@ namespace Network { namespace Client {
 
         Protocol::MQTT::V5::AuthPacket packet;
 
-        ScopedLock scope(impl->lock);
+        ConditionalScopedLock scope((impl->authSource & AuthMask) ? 0 : &impl->lock);
         if (!impl->isOpen()) return ErrorType::NotConnected;
         if (impl->getLastPacketType() != Protocol::MQTT::V5::RESERVED)
             return ErrorType::TranscientPacket;
@@ -1276,7 +1296,7 @@ namespace Network { namespace Client {
         // Check if we have a auth method
         packet.props.append(&method); // That'll fail silently if it already exists
         packet.props.append(&data); // That'll fail silently if it already exists
-        
+
         packet.fixedVariableHeader.reasonCode = reasonCode;
 
         // Then send the packet
@@ -1286,43 +1306,22 @@ namespace Network { namespace Client {
         Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
         if (type == Protocol::MQTT::V5::AUTH)
         {
-            Protocol::MQTT::V5::ROAuthPacket packet;
-            int ret = impl->extractControlPacket(type, packet);
-            if (ret > 0)
-            {
-                // Parse the Auth packet and call the user method
-                // Try to find the auth method, and the auth data
-                DynamicStringView authMethod;
-                DynamicBinDataView authData;
-                Protocol::MQTT::V5::VisitorVariant visitor;
-                while (packet.props.getProperty(visitor) && (authMethod.length == 0 || authData.length == 0))
-                {
-                    if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationMethod)
-                    {
-                        auto view = visitor.as< DynamicStringView >();
-                        authMethod = *view;
-                    }
-                    else if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationData)
-                    {
-                        auto data = visitor.as< DynamicBinDataView >();
-                        authData = *data;
-                    }
-                }
-                impl->cb->authReceived(packet.fixedVariableHeader.reason(), authMethod, authData, packet.props);
-                return ErrorType::Success;
-            }
-        } else if (type == Protocol::MQTT::V5::CONNACK && impl->inConnect)
+            impl->authSource++;
+            ErrorType ret = impl->handleAuth();
+            impl->authSource--;
+            return ret;
+        } else if (type == Protocol::MQTT::V5::CONNACK && (impl->authSource & FromConnect) > 0)
         {   // We don't signal any error here, it's up to the parent's connectTo to check this packet
             return ErrorType::Success;
         }
-        return Protocol::MQTT::V5::ProtocolError;      
+        return Protocol::MQTT::V5::ProtocolError;
     }
 #endif
 
     // Subscribe to a topic.
     MQTTv5::ErrorType MQTTv5::subscribe(const char * _topic, const RetainHandling retainHandling, const bool withAutoFeedBack, const QoSDelivery maxAcceptedQoS, const bool retainAsPublished, Properties * properties)
     {
-        if (_topic == nullptr) 
+        if (_topic == nullptr)
             return ErrorType::BadParameter;
 
         // Create the subscribe topic here
@@ -1363,7 +1362,7 @@ namespace Network { namespace Client {
             Protocol::MQTT::V5::ROSubACKPacket rpacket;
             int ret = impl->extractControlPacket(type, rpacket);
             if (ret <= 0) return ErrorType::TranscientPacket;
-            
+
             if (rpacket.fixedVariableHeader.packetID != packet.fixedVariableHeader.packetID)
                 return ErrorType::TranscientPacket;
 
@@ -1382,7 +1381,7 @@ namespace Network { namespace Client {
         return MQTTv5::ErrorType::NetworkError;
     }
 
-#if MQTTUseUnsubscribe == 1        
+#if MQTTUseUnsubscribe == 1
     MQTTv5::ErrorType MQTTv5::unsubscribe(UnsubscribeTopic & topics, Properties * properties)
     {
         ScopedLock scope(impl->lock);
@@ -1405,7 +1404,7 @@ namespace Network { namespace Client {
 
 
         packet.fixedVariableHeader.packetID = impl->allocatePacketID();
-        impl->unsubscribeId = packet.fixedVariableHeader.packetID; 
+        impl->unsubscribeId = packet.fixedVariableHeader.packetID;
         packet.payload.topics = &topics;
 
         // Then send the packet
@@ -1415,7 +1414,7 @@ namespace Network { namespace Client {
         // Unsubscribe answer will be fetched later on, use getUnsubscribeResult if you are interested in that
         return ErrorType::Success;
     }
-    
+
     MQTTv5::ErrorType MQTTv5::getUnsubscribeResult()
     {
         ScopedLock scope(impl->lock);
@@ -1436,24 +1435,24 @@ namespace Network { namespace Client {
         uint16 packetID = ((Protocol::MQTT::V5::FixedField<Protocol::MQTT::V5::PUBLISH> &)publishPacket.fixedVariableHeader).packetID;
 
         static Protocol::MQTT::V5::ControlPacketType nexts[3] = { Protocol::MQTT::V5::RESERVED, Protocol::MQTT::V5::PUBACK, Protocol::MQTT::V5::PUBREC };
-        Protocol::MQTT::V5::ControlPacketType next = nexts[QoS]; 
+        Protocol::MQTT::V5::ControlPacketType next = nexts[QoS];
 
         /* The state machine is like this:
                     SEND                         RECV
-                   [ PUB ] => Send 
+                   [ PUB ] => Send
                 - - - - - - - - - - -
-                                Receive [ PKT ]             
+                                Receive [ PKT ]
                 PKT == ACK ?                     PKT == ACK ?
                 / Yes      \ No (REC)            / Yes      \ No (REC)
                Assert ID  Assert ID           Send ACK      Send REC
-               |            |                    |      - - - - - - - - -      
+               |            |                    |      - - - - - - - - -
                Stop       [ REL ] => Send       Stop     Receive [REL]
                         - - - - - - - - - -                   |
                           Receive [COMP]                 Send [COMP]
-                            |                                 | 
+                            |                                 |
                           Assert ID                         Stop
-                            | 
-                           Stop    
+                            |
+                           Stop
         */
 
         if (sending)
@@ -1479,15 +1478,15 @@ namespace Network { namespace Client {
                 // Ensure it's matching the packet ID
                 if (reply.fixedVariableHeader.packetID != packetID)
                     // Could be a protocol error, but this will be checked in the next call to eventLoop
-                    return ErrorType::TranscientPacket; 
-                
+                    return ErrorType::TranscientPacket;
+
                 // Compute the expected next packet
                 next = Protocol::MQTT::Common::Helper::getNextPacketType(next);
-                if (next == Protocol::MQTT::V5::RESERVED) 
+                if (next == Protocol::MQTT::V5::RESERVED)
                     return ErrorType::Success;
             } else sending = true;
 
-            // Check if we need to send something 
+            // Check if we need to send something
             Protocol::MQTT::V5::PublishReplyPacket answer(next);
             answer.fixedVariableHeader.packetID = packetID;
             next = Protocol::MQTT::Common::Helper::getNextPacketType(next);
@@ -1500,7 +1499,7 @@ namespace Network { namespace Client {
     // Publish to a topic.
     MQTTv5::ErrorType MQTTv5::publish(const char * topic, const uint8 * payload, const uint32 payloadLength, const bool retain, const QoSDelivery QoS, const uint16 packetIdentifier, Properties * properties)
     {
-        if (topic == nullptr) 
+        if (topic == nullptr)
             return ErrorType::BadParameter;
 
         ScopedLock scope(impl->lock);
@@ -1568,7 +1567,7 @@ namespace Network { namespace Client {
         switch (type)
         {
         case Protocol::MQTT::V5::PINGRESP: break; // We ignore ping response
-        case Protocol::MQTT::V5::DISCONNECT: impl->close(); return ErrorType::NotConnected; // No work to perform upon server sending disconnect 
+        case Protocol::MQTT::V5::DISCONNECT: impl->close(); return ErrorType::NotConnected; // No work to perform upon server sending disconnect
         case Protocol::MQTT::V5::PUBLISH:
         {
             Protocol::MQTT::V5::ROPublishPacket packet;
@@ -1578,14 +1577,14 @@ namespace Network { namespace Client {
             impl->cb->messageReceived(packet.fixedVariableHeader.topicName, DynamicBinDataView(packet.payload.size, packet.payload.data), packet.fixedVariableHeader.packetID, packet.props);
             return enterPublishCycle(packet, false);
         }
-#if MQTTUseUnsubscribe == 1        
+#if MQTTUseUnsubscribe == 1
         case Protocol::MQTT::V5::UNSUBACK:
         {
             Protocol::MQTT::V5::ROUnsubACKPacket rpacket;
             int ret = impl->extractControlPacket(type, rpacket);
             if (ret == 0) { impl->close(); return ErrorType::NotConnected; }
             if (ret < 0) return ErrorType::NetworkError;
-            
+
             if (rpacket.fixedVariableHeader.packetID != impl->unsubscribeId)
                 return ErrorType::NetworkError;
 
@@ -1608,24 +1607,24 @@ namespace Network { namespace Client {
         }
 #endif
 
-        default: // Ignore all other packets currently 
+        default: // Ignore all other packets currently
             break;
         }
 
         impl->resetPacketReceivingState();
         return ErrorType::Success;
-    } 
+    }
 
     // Disconnect from the server
     MQTTv5::ErrorType MQTTv5::disconnect(const ReasonCodes code, Properties * properties)
     {
-        if (code != ReasonCodes::NormalDisconnection && code != ReasonCodes::DisconnectWithWillMessage && code < ReasonCodes::UnspecifiedError) 
+        if (code != ReasonCodes::NormalDisconnection && code != ReasonCodes::DisconnectWithWillMessage && code < ReasonCodes::UnspecifiedError)
             return ErrorType::BadParameter;
 
 
         ScopedLock scope(impl->lock);
         if (!impl->isOpen()) return ErrorType::Success;
-        
+
         Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::DISCONNECT> packet;
         packet.fixedVariableHeader.reasonCode = code;
         // Capture properties (to avoid copying them)
