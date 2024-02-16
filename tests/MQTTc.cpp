@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// We need MQTT client 
+// We need MQTT client
 #include "Network/Clients/MQTT.hpp"
 // We need URL parsing too
 #include "Network/Address.hpp"
@@ -20,14 +20,36 @@ struct InitLogger {
 
 struct MessageReceiver : public Network::Client::MessageReceived
 {
-    void messageReceived(const Network::Client::MQTTv5::DynamicStringView & topic, const Network::Client::MQTTv5::DynamicBinDataView & payload, 
+    void messageReceived(const Network::Client::MQTTv5::DynamicStringView & topic, const Network::Client::MQTTv5::DynamicBinDataView & payload,
                          const uint16 packetIdentifier, const Network::Client::MQTTv5::PropertiesView & properties)
     {
         fprintf(stdout, "Msg received: (%04X)\n", packetIdentifier);
         fprintf(stdout, "  Topic: %.*s\n", topic.length, topic.data);
         fprintf(stdout, "  Payload: %.*s\n", payload.length, payload.data);
     }
+#if MQTTUseAuth == 1
+    bool authReceived(const ReasonCodes reasonCode, const DynamicStringView & authMethod, const DynamicBinDataView & authData, const PropertiesView & properties)
+    {
+        fprintf(stdout, "Auth packet received\n");
+        fprintf(stdout, "  AuthMethod: %.*s\n", authMethod.length, authMethod.data);
+        fprintf(stdout, "  AuthData: %.*s\n", authData.length, authData.data);
+        fprintf(stdout, "  Reason Code: %d\n", (int)reasonCode);
 
+        if (authData.length != strlen("Whizz") || memcmp(authData.data, "Whizz", authData.length))
+        {
+            fprintf(stdout, "Bad authentication answer from server");
+            return false;
+        }
+        DynamicBinDataView data(strlen("Bees"), (const uint8*)"Bees");
+        if (Network::Client::MQTTv5::ErrorType ret = client->auth(Protocol::MQTT::V5::ContinueAuthentication, authMethod, data))
+        {
+            fprintf(stdout, "Failed auth with error: %d\n", (int)ret);
+            return false;
+        }
+        return true;
+    }
+    Network::Client::MQTTv5 * client;
+#endif
 };
 
 String publishTopic, publishMessage;
@@ -44,7 +66,7 @@ String setQoS(const String & qos)
     if (qos == "0" || qos.caselessEqual("atmostone")) QoS = Network::Client::MQTTv5::QoSDelivery::AtMostOne;
     else if (qos == "1" || qos.caselessEqual("atleastone")) QoS = Network::Client::MQTTv5::QoSDelivery::AtLeastOne;
     else if (qos == "2" || qos.caselessEqual("exactlyone")) QoS = Network::Client::MQTTv5::QoSDelivery::ExactlyOne;
-    else 
+    else
     {
         return "Please specify either 0 or atleastone, 1 or atmostone, 2 or exactlyone for QoS option";
     }
@@ -84,17 +106,17 @@ String readFile(const String & path)
 
 int main(int argc, const char ** argv)
 {
-    
+
     String server;
     String username;
     String password;
     String clientID;
     String subscribe;
     String certFile;
-    unsigned keepAlive = 300; 
+    unsigned keepAlive = 300;
     bool   dumpComm = false;
     bool   retainPublishedMessage = false;
-    
+
 
     Arguments::declare(server, "The server URL (for example 'mqtt.mine.com:1883')", "server");
     Arguments::declare(username, "The username to use", "username");
@@ -108,9 +130,9 @@ int main(int argc, const char ** argv)
     Arguments::declare(certFile, "Expected broker certificate in DER format", "der");
 
     Arguments::declare(dumpComm, "Dump communication", "verbose");
-    
+
     String error = Arguments::parse(argc, argv);
-    if (error) 
+    if (error)
     {
         fprintf(stderr, "%s\n", (const char*)error);
         return argc != 1;
@@ -126,7 +148,7 @@ int main(int argc, const char ** argv)
     Network::Address::URL serverURL(server);
     uint16 port = serverURL.stripPortFromAuthority(1883);
     MessageReceiver receiver;
-    
+
 #if MQTTUseTLS == 1
     Protocol::MQTT::Common::DynamicBinaryData brokerCert;
     if (certFile)
@@ -142,10 +164,23 @@ int main(int argc, const char ** argv)
 #endif
     Network::Client::MQTTv5::DynamicBinDataView pw(password.getLength(), (const uint8*)password);
 
-    if (Network::Client::MQTTv5::ErrorType ret = client.connectTo(serverURL.getAuthority(), port, serverURL.getScheme().caselessEqual("mqtts"), 
+#if MQTTUseAuth == 1
+    receiver.client = &client;
+    Protocol::MQTT::V5::Property<Network::Client::MQTTv5::DynamicStringView> method(Protocol::MQTT::V5::AuthenticationMethod, Network::Client::MQTTv5::DynamicStringView("DumbledoreOffice"));
+    Protocol::MQTT::V5::Property<Network::Client::MQTTv5::DynamicBinDataView> data(Protocol::MQTT::V5::AuthenticationData, Network::Client::MQTTv5::DynamicBinDataView(strlen("Fizz"), (const uint8*)"Fizz"));
+    Protocol::MQTT::V5::Properties props;
+
+    props.append(&method);
+    props.append(&data);
+
+    if (Network::Client::MQTTv5::ErrorType ret = client.connectTo(serverURL.getAuthority(), port, serverURL.getScheme().caselessEqual("mqtts"),
+                                                                  (uint16)min(65535U, keepAlive), true, username ? (const char*)username : nullptr, password ? &pw : nullptr, nullptr, QoS, false, &props))
+#else
+    if (Network::Client::MQTTv5::ErrorType ret = client.connectTo(serverURL.getAuthority(), port, serverURL.getScheme().caselessEqual("mqtts"),
                                                                   (uint16)min(65535U, keepAlive), true, username ? (const char*)username : nullptr, password ? &pw : nullptr))
+#endif
     {
-        return fprintf(stderr, "Failed connection to %s with error: %d\n", (const char*)serverURL.asText(), (int)ret); 
+        return fprintf(stderr, "Failed connection to %s with error: %d\n", (const char*)serverURL.asText(), (int)ret);
     }
     printf("Connected to %s\n", (const char*)serverURL.asText());
 
@@ -168,7 +203,7 @@ int main(int argc, const char ** argv)
         }
 
 #if MQTTUseUnsubscribe == 1
-        // Unsubscribe from the topic here 
+        // Unsubscribe from the topic here
         Protocol::MQTT::V5::UnsubscribeTopic topic((const char*)subscribe, true);
         if (Network::Client::MQTTv5::ErrorType ret = client.unsubscribe(topic, 0))
         {
@@ -177,7 +212,7 @@ int main(int argc, const char ** argv)
         // Run the event loop once more to fetch the unsubscribe ACK (not absolutely required when leaving, but for sample code
         if (Network::Client::MQTTv5::ErrorType ret = client.eventLoop())
             return fprintf(stderr, "Event loop failed with error: %d\n", (int)ret);
-        
+
         Network::Client::MQTTv5::ErrorType ret = client.getUnsubscribeResult();
         fprintf(ret == 0 ? stdout : stderr, "Unsubscribe result: %d\n", (int)ret);
 #endif
