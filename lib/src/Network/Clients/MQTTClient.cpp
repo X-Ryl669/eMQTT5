@@ -358,10 +358,11 @@ namespace Network { namespace Client {
             return -7;
         }
 
+#if MQTTUseAuth == 1
         MQTTv5::ErrorType handleAuth()
         {
             Protocol::MQTT::V5::ROAuthPacket packet;
-            int ret = extractControlPacket(type, packet);
+            int ret = extractControlPacket(Protocol::MQTT::V5::AUTH, packet);
             if (ret > 0)
             {
                 // Parse the Auth packet and call the user method
@@ -386,11 +387,12 @@ namespace Network { namespace Client {
             }
             return ErrorType::NetworkError;
         }
+#endif
         MQTTv5::ErrorType handleConnACK()
         {
             // Parse the ConnACK packet;
             Protocol::MQTT::V5::ROConnACKPacket packet;
-            int ret = extractControlPacket(type, packet);
+            int ret = extractControlPacket(Protocol::MQTT::V5::CONNACK, packet);
             if (ret > 0)
             {
                 // We are only interested in the result of the connection
