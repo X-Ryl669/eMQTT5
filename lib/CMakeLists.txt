@@ -20,7 +20,8 @@ ENDIF()
 target_compile_definitions(eMQTT5 PUBLIC _DEBUG=$<CONFIG:Debug> 
                                         MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON>
                                         MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF> 
-                                        MQTTUseTLS=$<AND:$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>,$<STREQUAL:${ENABLE_TLS},ON>>)
+                                        MQTTUseTLS=$<AND:$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF>,$<STREQUAL:${ENABLE_TLS},ON>>
+					MQTTLowLatency=$<STREQUAL:${LOW_LATENCY},ON>)
 
 IF (WIN32)
 ELSE()

@@ -175,7 +175,7 @@ namespace Network { namespace Client {
             @retval 0           Protocol error, you should close the socket
             @retval -1          Socket error
             @retval -2          Timeout */
-        int receiveControlPacket()
+        int receiveControlPacket(const bool lowLatency = false)
         {
             if (!socket) return -1;
             // Depending on the current state, we need to fetch as many bytes as possible within the given timeoutMs
@@ -191,6 +191,11 @@ namespace Network { namespace Client {
             // Else, we can enter a more general receiving loop until we have all bytes from the control packet
             int ret = 0;
             Protocol::MQTT::Common::VBInt len;
+
+#if MQTTLowLatency == 1
+            // In low latency mode, return as early as possible
+            if (lowLatency && !socket->select(true, false, 0)) return -2;
+#endif
 
             // We want to keep track of complete timeout time over multiple operations
             Time::TimeOut timeout(timeoutMs);
@@ -618,15 +623,12 @@ namespace Network { namespace Client {
         }
 
         // Useful socket helpers functions here
-        MQTTVirtual int select(bool reading, bool writing)
+        MQTTVirtual int select(bool reading, bool writing, bool instantaneous = false)
         {
-#if (_LINUX == 1)
             // Linux modifies the timeout when calling select
             struct timeval v = timeoutMs;
-#else
-            // Other system don't
-            struct timeval & v = timeoutMs;
-#endif
+            if (instantaneous) memset(&v, 0, sizeof(v));
+
             fd_set set;
             FD_ZERO(&set);
             FD_SET(socket, &set);
@@ -866,7 +868,7 @@ namespace Network { namespace Client {
             @retval 0           Protocol error, you should close the socket
             @retval -1          Socket error
             @retval -2          Timeout */
-        int receiveControlPacket()
+        int receiveControlPacket(const bool lowLatency = false)
         {
             if (!socket) return -1;
             // Depending on the current state, we need to fetch as many bytes as possible within the given timeoutMs
@@ -882,6 +884,11 @@ namespace Network { namespace Client {
             // Else, we can enter a more general receiving loop until we have all bytes from the control packet
             int ret = 0;
             Protocol::MQTT::Common::VBInt len;
+
+#if MQTTLowLatency == 1
+            // In low latency mode, return as early as possible
+            if (lowLatency && !socket->select(true, false, true)) return -2;
+#endif
 
             // We want to keep track of complete timeout time over multiple operations
             switch (recvState)
@@ -1551,7 +1558,7 @@ namespace Network { namespace Client {
                     return ret;
             }
             // Check the server for any packet...
-            int ret = impl->receiveControlPacket();
+            int ret = impl->receiveControlPacket(true);
             if (ret == 0)
             {
                 impl->close();

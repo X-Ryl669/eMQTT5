@@ -62,6 +62,19 @@
   #define MQTTOnlyBSDSocket   1
 #endif
 
+/** Low latency mode
+    If set to 1, this will only wait on the receiving socket in a non blocking fashion.
+    You'll use this if you need to do other processing in your main application loop. It reduces latency for your
+    other application code at the cost of increased CPU usage since the loop time will decrease from the default
+    timeout set to mainly the duration of a system call.
+
+    This allow implies you provide a BSD compatible select function for the socket implementation.
+
+    Default: 0 */
+#ifndef MQTTLowLatency
+  #define MQTTLowLatency  0
+#endif
+
 // The part below is for building only, it's made to generate a message so the configuration is visible at build time
 #if _DEBUG == 1
   #if MQTTUseAuth == 1
@@ -95,13 +108,21 @@
     #define CONF_TLS "_"
   #endif
 
+  #if MQTTLowLatency == 1
+    #define CONF_LL "LL_"
+  #else
+    #define CONF_LL "_"
+  #endif
+
   #if MQTTOnlyBSDSocket == 1
     #define CONF_SOCKET "BSD"
   #else
     #define CONF_SOCKET "CP"
   #endif
 
-  #pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_UNSUB CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
+
+
+  #pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_UNSUB CONF_DUMP CONF_VALID CONF_TLS CONF_LL CONF_SOCKET)
 #endif
 
 #endif
