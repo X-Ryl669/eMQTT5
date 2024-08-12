@@ -1192,7 +1192,10 @@ namespace Network { namespace Client {
 
         // Check we can contact the server and connect to it (not initial write to the server is required here)
         if (int ret = impl->connectWith(serverHost, port, useTLS))
+        {
+            impl->close();
             return ret == -7 ? ErrorType::TimedOut : ErrorType::NetworkError;
+        }
 
         // Create the header object now
         impl->keepAlive = (keepAliveTimeInSec + (keepAliveTimeInSec / 2)) / 2; // Make it 75% of what's given so we always wake up before doom's clock
@@ -1212,7 +1215,10 @@ namespace Network { namespace Client {
 
         // Ok, setting are done, let's build this packet now
         if (ErrorType ret = prepareSAR(packet))
+        {
+            impl->close();
             return ret;
+        }
 
         // Then extract the packet type
         Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
