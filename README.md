@@ -7,7 +7,7 @@ This repository contains a complete MQTT v5.0 client that's optimized for code s
 This is, to my knowledge, the smallest (and complete!) MQTT v5.0 client for embedded system with a binary size down to less than 17kB on ESP32 (and less than 75kB on MacOSX). 
 MQTT v5.0 is a more complex protocol than MQTT v3.1.1, with the addition of properties in each packet and authentication subsystem. 
 
-If you wonder what MQTT is (or isn't), feel free to consult [this page](https://blog.cyril.by/fr/documentation/emqtt5-doc/mqtt-minimal-knowledge).
+If you wonder what MQTT is (or isn't), feel free to consult [this page](https://blog.cyril.by/en/documentation/emqtt5-doc/mqtt-minimal-knowledge).
 
 
 ## Why another MQTT client ?
