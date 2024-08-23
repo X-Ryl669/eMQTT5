@@ -22,7 +22,7 @@
     This causes a large increase in binary size, induce an important latency cost, and lower the security by
     displaying potentially private informations
     Default: 0 */
-#define MQTTDumpCommunication 0
+#define MQTTDumpCommunication 1
 
 /** Remove all validation from MQTT types.
     This removes validation check for all MQTT types in order to save binary size.

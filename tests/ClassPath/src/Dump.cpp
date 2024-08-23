@@ -17,7 +17,7 @@ namespace Utils
                     out += " ";
                     for (uint32 j = i - colSize; j < i; j++)
                     {
-                        out += Strings::FastString::Print("%c", array[j] < 32 ? '.' : array[j]);
+                        out += Strings::FastString::Print("%c", (array[j] < 32 || array[j] >= 0x80) ? '.' : array[j]);
                     }
                 }
 
@@ -37,7 +37,7 @@ namespace Utils
             out += " ";
             for (uint32 j = i - (i % colSize); j < i; j++)
             {
-                out += Strings::FastString::Print("%c", array[j] < 32 ? '.' : array[j]);
+                out += Strings::FastString::Print("%c", (array[j] < 32 || array[j] >= 0x80) ? '.' : array[j]);
             }
         }
     }
