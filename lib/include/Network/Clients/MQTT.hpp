@@ -43,13 +43,45 @@ namespace Network
                 @return true if the packet was found and deleted, false otherwise */
             virtual bool releasePacketBuffer(const uint16 packetID) { return true; }
             /** Load a packet from the packet storage to be able to retransmit it on reconnection.
-                @param packetID The packet identifier
-                @param buffer   The packet buffer pointer that'll be set to the packet to retransmit
-                @param size     The size of the packet buffer in bytes
+                It's guaranteed that this method is called before any other packet could interfere,
+                so keeping the returned pointer is safe until the packet is released.
+
+                Since this is used to resend packet over a TCP (thus streaming) socket,
+                we can skip one copy to rebuilt a contiguous packet by simply returning
+                the two part in the ring buffer and let the application send them successively.
+                From the receiving side, they'll be received as one contiguous packet.
+
+                In case the storage doesn't use a ring buffer underneath, the bufferTail/sizeTail will
+                always be zero.
+                @param packetID     The packet identifier
+                @param bufferHead   If found, the pointer will be set to the head of the packet buffer
+                @param sizeHead     The size of the packet buffer head in bytes
+                @param bufferTail   If found, the pointer will be set to the tail of the packet buffer. Can be null.
+                @param sizeTail     The size of the packet buffer tail in bytes (or zero if no data required in tail)
                 @return true if the packet was found and the arguments modified, false otherwise, in which case the publishing will abort */
-            virtual bool loadPacketBuffer(const uint16 packetID, uint8 *& buffer, uint32 & size) { return false; }
+            virtual bool loadPacketBuffer(const uint16 packetID, const uint8 *& bufferHead, uint32 & sizeHead, const uint8 *& bufferTail, uint32 & sizeTail) { return false; }
 
             virtual ~PacketStorage() {}
+        };
+
+        /** An implementation of a packet storage that stores packets in a ring buffer */
+        struct RingBufferStorage : public PacketStorage
+        {
+            bool savePacketBuffer(const uint16 packetID, const uint8 * buffer, const uint32 size);
+            bool releasePacketBuffer(const uint16 packetID);
+            bool loadPacketBuffer(const uint16 packetID, const uint8 *& bufferHead, uint32 & sizeHead, const uint8 *& bufferTail, uint32 & sizeTail);
+
+            /** The ring buffer storage size. Must be a power of 2 */
+            RingBufferStorage(const size_t bufferSize, const size_t maxPacketCount);
+            ~RingBufferStorage();
+
+            struct Impl;
+
+            // Members
+        private:
+            /** The PImpl idiom used here to avoid exposing the internal implementation */
+            Impl * impl;
+            friend struct Impl;
         };
 
         /** Message received callback interface you must overload. */
@@ -316,7 +348,10 @@ namespace Network
                                     $ echo | openssl s_client -servername your.server.com -connect your.server.com:8883 2>/dev/null | openssl x509 > cert.pem
                                     If you have a PEM encoded certificate, use this code to convert it to (33% smaller) DER format
                                     $ openssl x509 -in cert.pem -outform der -out cert.der
-                @param storage      A pointer to a PacketStorage implementation (used for QoS retransmission). If null a default one will be used that doesn't store any packet. */
+                @param storage      A pointer to a PacketStorage implementation (used for QoS retransmission) that's owned.
+                                    If null a default one will be used that stores packet in a ring buffer (allocating memory for it).
+                                    You can use "new PacketStorage()" here to skip any memory allocation but the client won't be 100% compliant here,
+                                    it'll just fail to retransmit any QoS packet after resuming from a connection loss. */
             MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert = 0, PacketStorage * storage = 0);
             /** Default destructor */
             ~MQTTv5();

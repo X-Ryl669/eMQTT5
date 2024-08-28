@@ -229,6 +229,14 @@ int main(int argc, const char ** argv)
             return fprintf(stderr, "Failed publishing %s to %s with error: %d\n", (const char*)publishMessage, (const char*)publishTopic, (int)ret);
         }
         printf("Published %s to %s\n", (const char*)publishMessage, (const char*)publishTopic);
+
+        // Need to run the event loop for some time so the publish cycle can happen
+        uint32 publishCycleCount = (uint32)QoS;
+        while (publishCycleCount--)
+        {   // By a good design or pure randomness, the number of loop to run is equal to the QoS level...
+            if (Network::Client::MQTTv5::ErrorType ret = client.eventLoop())
+                return fprintf(stderr, "Event loop failed with error: %d\n", (int)ret);
+        }
         return 0;
     }
 
