@@ -152,6 +152,228 @@ namespace Network { namespace Client {
 
     static void dumpBufferAsPacket(const char * prompt, const uint8* buffer, uint32 length);
 
+
+    struct PacketBookmark
+    {
+        uint16 ID;
+        uint32 size;
+        uint32 pos;
+
+        inline void set(uint16 ID, uint32 size, uint32 pos) { this->ID = ID; this->size = size; this->pos = pos; }
+        PacketBookmark(uint16 ID = 0, uint32 size = 0, uint32 pos = 0) : ID(ID), size(size), pos(pos) {}
+    };
+    struct RingBufferStorage::Impl
+    {
+        /** Read and write pointer in the ring buffer */
+        uint32           r, w;
+        /** Buffer size minus 1 in bytes */
+        const uint32     sm1;
+        /** The buffer to write packets into */
+        uint8 *          buffer;
+        /** The metadata about the packets */
+        PacketBookmark * packets;
+        /** Maximum number of packets in the metadata array */
+        uint8            packetsCount;
+
+        /** Find the packet with the given ID */
+        uint8 findID(uint32 ID)
+        {
+            for (uint8 i = 0; i < packetsCount; i++)
+                if (packets[i].ID == ID)
+                    return i;
+            return packetsCount;
+        }
+
+        /** Get the consumed size in the buffer */
+        inline uint32 getSize() const { return w >= r ? w - r : (sm1 - r + w + 1); }
+        /** Get the available size in the buffer */
+        inline uint32 freeSize() const { return sm1 - getSize(); }
+
+        /** Add a packet to this buffer (no allocation is done at this time) */
+        bool save(const uint16 packetID, const uint8 * packet, uint32 size)
+        {
+            // Check we can fit the packet
+            if (size > sm1 || freeSize() < size) return false;
+            // Check if we have a free space for storing the packet's information
+            uint8 i = findID(0);
+            if (i == packetsCount) return false;
+
+            const uint32 part1 = min(size, sm1 - w + 1);
+            const uint32 part2 = size - part1;
+
+            memcpy((buffer + w), packet, part1);
+            memcpy((buffer), packet + part1, part2);
+
+            packets[i].set(packetID, size, w);
+            w = (w + size) & sm1;
+            return true;
+        }
+        /** Get a packet from the buffer.
+            Since this is used to resend packet over a TCP (thus streaming) socket,
+            we can skip one copy to rebuilt a contiguous packet by simply returning
+            the two part in the ring buffer and let the application send them successively.
+            From the receiving side, they'll be received as one contiguous packet. */
+        bool load(const uint16 packetID, const uint8 *& packetHead, uint32 & sizeHead, const uint8 *& packetTail,  uint32 & sizeTail)
+        {
+            // Look for the packet
+            uint8 i = findID(packetID);
+            if (i == packetsCount) return false;
+
+            // Check if the packet is split
+            packetHead = buffer + packets[i].pos;
+            sizeHead = min(packets[i].size, (sm1 - packets[i].pos + 1));
+            sizeTail = packets[i].size - sizeHead;
+            packetTail = buffer;
+            return true;
+        }
+
+        /** Remove a packet from the buffer */
+        bool release(const uint16 packetID)
+        {
+            uint8 i = findID(packetID);
+            if (i == packetsCount) return false;
+
+            PacketBookmark & packet = packets[i];
+
+            // Here, we have 2 cases. Either the packet is on the read position of the ring buffer
+            // and in that case, we just need to advance the read position.
+            // Either it's in the middle of the ring buffer and we need to move all the data around to remove it
+            // Let's deal with the former case first
+            uint32 pos = packet.pos, size = packet.size, end = (packet.pos + packet.size) & sm1;
+            packet.set(0, 0, 0);
+            if (pos == r)
+            {
+                r = (r + size) & sm1;
+                return true;
+            }
+
+            // Another optimization step is when the write position is at the end of this packet
+            // We can just revert the storage of the packet directly
+            if (end == w)
+            {
+                w = pos;
+                return true;
+            }
+
+            // Ok, now we have to move the data around here
+            // First let's move memory to remove that packet.
+            // We'll fix the packet's position later on
+            // We are in this case here:
+            //  bbbbccw  r p   eaaaaaaaaa      with p/e (pos/end) and a / b / c the next packet
+            //        |  | |   |
+            // [-------------------------]
+            // After move, it should look like:
+            //  ccw       r aaaaaaaaabbbb      with p/e (pos/end) and a / b / c the next packet
+            //    |       | |   |
+            // [-------------------------]
+            // We see they are 3 sections: a is the data between e and the buffer end
+            // b is the data whose size is equal to buffer end - p - sizeof(a) (the part that was moved from
+            // the beginning of the buffer to the end of the buffer)
+            // and c is the part that was move from the end of the packet to the beginning of the buffer
+            // We have to perform move a to p, move b to buffer.end - a.size and move c to buffer begin
+
+            // It's hard to think without unwrapping the buffer, so let's imagine we are doing so (we'll rewrap after discussion)
+            // Let's set w' = w+sm1+1, e' = e + (sm1 - 1)
+            // It'll lead to this diagram:
+            //  bbbbccw  r p   eaaaaaaaaa BBBBCCW       with p/e (pos/end) and a / b / c the next packet
+            //        |  | |   |                |
+            // [-------------------------:-------------------------]
+            // Or
+            //     eaacccccw  r        p     EAACCCCCW
+            //     |       |  |        |     |       |
+            // [-------------------------:-------------------------]
+            // Or
+            //      r  p    eaaaaa w
+            //      |  |    |    | |
+            // [-------------------------:-------------------------]
+            // In that case, we are doing a single memory move operation here, but we simply wrap the position
+            uint32 s = sm1 + 1, W = w < pos ? w + s : w, E = end < pos ? end + s : end;
+
+            for (uint32 u = 0; u < W - E; u++)
+                buffer[(u + pos) & sm1] = buffer[(u + pos + size) & sm1];
+
+            // Adjust the new write position
+            w = (W - size) & sm1;
+
+            // We can split the packets in 2 cases: before or after the packet to remove.
+            // We'll iterate each packet and decide if we need to move it (it's after the packet to remove)
+            // This isn't the most efficient algorithm, but since the number of packets to store is small
+            // there's no point in optimizing it further
+
+            bool continueSearching = true;
+            while (continueSearching)
+            {
+                continueSearching = false;
+                for (uint8 j = 0; j < packetsCount; j++)
+                {
+                    PacketBookmark & iter = packets[j];
+                    if (iter.pos == end)
+                    {
+                        end = (iter.pos + iter.size) & sm1;
+                        iter.pos = pos;
+                        pos = (iter.pos + iter.size) & sm1;
+                        continueSearching = true;
+                        break;
+                    }
+                }
+            }
+            return true;
+        }
+
+#if 0
+        /** This is only used in the test code to ensure it's working as expected */
+        bool selfCheck() const
+        {
+            for (uint8 j = 0; j < packetsCount; j++)
+            {
+                const PacketBookmark & i = packets[j];
+                if (!i.ID) continue;
+                const uint32 end = (i.pos + i.size) & sm1;
+                if (end == w) continue;
+                // Find if any packet starts with the next slot
+                bool found = false;
+                for (uint8 k = 0; k < packetsCount; k++)
+                {
+                    if (packets[k].pos == end)
+                    {
+                        // Found one
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    fprintf(stderr, "Error while checking packet %u (%u,s:%u), no next packet found and not tail position\n", i.ID, i.pos, i.size);
+                    return false;
+                }
+            }
+            fprintf(stdout, "RB: r(%u) w(%u)\n", r, w);
+            return true;
+        }
+#endif
+
+        Impl(size_t size, uint8 * buffer, uint8 packetsCount, PacketBookmark * packets) : r(0), w(0), sm1(size - 1), buffer(buffer), packets(packets), packetsCount(packetsCount) {}
+    };
+
+    /** Helper function to perform a single allocation for all data so it avoids stressing the allocator */
+    static RingBufferStorage::Impl * allocImpl(const uint32 bufferSize, const uint32 maxPacketCount)
+    {
+        uint8 * p = (uint8*)::calloc(1, sizeof(RingBufferStorage::Impl) + bufferSize + maxPacketCount * sizeof(PacketBookmark));
+        return new (p) RingBufferStorage::Impl(bufferSize, p + sizeof(RingBufferStorage::Impl), maxPacketCount, (PacketBookmark*)(p + sizeof(RingBufferStorage::Impl) + bufferSize));
+    }
+
+    bool RingBufferStorage::savePacketBuffer(const uint16 packetID, const uint8 * buffer, const uint32 size) { return impl->save(packetID, buffer, size); }
+    bool RingBufferStorage::releasePacketBuffer(const uint16 packetID) { return impl->release(packetID); }
+    bool RingBufferStorage::loadPacketBuffer(const uint16 packetID, const uint8 *& bufferHead, uint32 & sizeHead, const uint8 *& bufferTail, uint32 & sizeTail)
+    {
+        return impl->load(packetID, bufferHead, sizeHead, bufferTail, sizeTail);
+    }
+
+    /** The ring buffer storage size. Must be a power of 2 */
+    RingBufferStorage::RingBufferStorage(const size_t bufferSize, const size_t maxPacketCount) : impl(allocImpl(bufferSize, maxPacketCount)) {}
+    RingBufferStorage::~RingBufferStorage() { ::free0(impl); }
+
+
     /** Common base interface that's common to all implementation using CRTP to avoid code duplication */
     template <typename Child>
     struct ImplBase
@@ -163,7 +385,7 @@ namespace Network { namespace Client {
         /** This client unique identifier */
         Protocol::MQTT::Common::DynamicString               clientID;
         /** The message received callback to use */
-        MessageReceived *           cb;
+        MessageReceived *                                   cb;
 
         /** The last communication time in second */
         uint32                      lastCommunication;
@@ -211,7 +433,10 @@ namespace Network { namespace Client {
                unsubscribeId(0), lastUnsubscribeError(ErrorType::WaitingForResult),
 #endif
                recvState(Ready), buffers(max(callback->maxPacketSize(), 8U), min(callback->maxUnACKedPackets(), 127U)), maxPacketSize(65535), available(0), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), 8U)).getSize()), state(State::Unknown)
-        {}
+        {
+            if (!storage) this->storage = new RingBufferStorage(buffers.size, buffers.packetsCount() * 2);
+        }
+        ~ImplBase() { delete0(storage); }
 
         bool shouldPing()
         {
@@ -360,9 +585,10 @@ namespace Network { namespace Client {
         inline const Child * that() const { return static_cast<const Child*>(this); }
 
 
-        void close()
+        void close(const Protocol::MQTT::V5::ReasonCodes code = Protocol::MQTT::V5::ReasonCodes::UnspecifiedError)
         {
             delete0(that()->socket);
+            cb->connectionLost(code);
             state = State::Unknown;
         }
 
@@ -487,12 +713,15 @@ namespace Network { namespace Client {
         ErrorType dealWithNoise()
         {
             Protocol::MQTT::V5::ControlPacketType type = getLastPacketType();
-            fprintf(stderr, "DWN(%u)\n", type);
             uint16 typeMask = bit(type);
 
             if (type == Protocol::MQTT::V5::DISCONNECT)
             {   // Disconnect is a special packet that can happens at any state
-                close();
+                Protocol::MQTT::V5::RODisconnectPacket packet;
+                Protocol::MQTT::V5::ReasonCodes reason = Protocol::MQTT::V5::NormalDisconnection;
+                int ret = extractControlPacket(type, packet);
+                if (ret > 0) reason = packet.fixedVariableHeader.reason();
+                close(reason);
                 return ErrorType::NotConnected; // No work to perform upon server sending disconnect
             }
 
@@ -704,12 +933,16 @@ namespace Network { namespace Client {
                             {
                                 // No PUBACK or no PUBREC received, we need to resend the packet
                                 uint16 id = packetID & 0xFFFF;
-                                uint8 * packet = 0; uint32 size = 0;
-                                if (!storage->loadPacketBuffer(id, packet, size))
+                                const uint8 * packetH = 0, * packetT = 0; uint32 sizeH = 0, sizeT = 0;
+                                if (!storage->loadPacketBuffer(id, packetH, sizeH, packetT, sizeT))
                                     return ErrorType::StorageError;
 
                                 // Send the packet and run the event loop to purge the acknowledgement.
-                                if (ErrorType ret = sendAndReceive(packet, size, true))
+                                ErrorType ret = ErrorType::Success;
+                                if ((ret = sendAndReceive(packetH, sizeH, sizeT == 0)))
+                                    return ret;
+
+                                if (sizeT && (ret = sendAndReceive(packetT, sizeT, true)))
                                     return ret;
                             }
                             // As per 4.9 flow control, we can't send all other packet without processing the
@@ -1181,7 +1414,7 @@ namespace Network { namespace Client {
 #endif
 
     MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert, PacketStorage * storage) : impl(new Impl(clientID, callback, brokerCert, storage)) {}
-    MQTTv5::~MQTTv5() { delete impl; impl = 0; }
+    MQTTv5::~MQTTv5() { delete0(impl); }
 
 
 
@@ -1512,6 +1745,16 @@ namespace Network { namespace Client {
                 Protocol::MQTT::V5::PingReqPacket packet;
                 if (ErrorType ret = impl->requestOneLoop(packet))
                     return ret;
+
+                type = impl->getLastPacketType();
+                if (type == Protocol::MQTT::V5::PINGRESP)
+                {
+                    Protocol::MQTT::V5::PingRespPacket rpacket;
+                    int ret = impl->extractControlPacket(type, rpacket);
+                    if (ret <= 0) return ErrorType::NetworkError;
+                }
+                // Ok, done for now
+                return ErrorType::Success;
             }
             // Check the server for any packet...
             int ret = impl->receiveControlPacket(true);
