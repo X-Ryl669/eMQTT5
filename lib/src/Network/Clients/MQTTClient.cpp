@@ -19,6 +19,10 @@
 //#include "../../../include/Network/SSLSocket.hpp"
 // We need FastLock too
 #include "Threading/Lock.hpp"
+  #if MQTTDumpCommunication == 1
+    // We need hexDump
+    #include "Utils/Dump.hpp"
+  #endif
 #else
 // We need BSD socket here
 #include <sys/socket.h>
@@ -41,11 +45,6 @@
 #endif
 // We need StackHeapBuffer to avoid stressing the heap allocator when it's not required
 #include <Platform/StackHeapBuffer.hpp>
-
-#if MQTTDumpCommunication == 1
-  // We need hexDump
-  #include "Utils/Dump.hpp"
-#endif
 
 // This is the maximum allocation that'll be performed on the stack before it's being replaced by heap allocation
 // This also means that the stack size for the thread using such function must be larger than this value
