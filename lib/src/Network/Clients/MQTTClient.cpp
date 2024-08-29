@@ -90,6 +90,7 @@ namespace Network { namespace Client {
         inline bool releaseID(uint32 ID)    { return clearSetID(0, (uint32)ID); }
         inline uint8 end() const            { return maxID; }
         inline uint8 packetsCount() const   { return maxID / 3; }
+        inline void reset()                 { memset(packetsID(), 0, maxID * 3 * sizeof(uint32)); }
         inline uint32 packetID(uint8 i) const { return packetsID()[i]; }
         inline uint8 countSentID() const    {
             uint8 count = 0;
@@ -152,7 +153,7 @@ namespace Network { namespace Client {
 
     static void dumpBufferAsPacket(const char * prompt, const uint8* buffer, uint32 length);
 
-
+#if MQTTQoSSupportLevel == 1
     struct PacketBookmark
     {
         uint16 ID;
@@ -320,7 +321,7 @@ namespace Network { namespace Client {
             return true;
         }
 
-#if 0
+  #if 0
         /** This is only used in the test code to ensure it's working as expected */
         bool selfCheck() const
         {
@@ -350,7 +351,7 @@ namespace Network { namespace Client {
             fprintf(stdout, "RB: r(%u) w(%u)\n", r, w);
             return true;
         }
-#endif
+  #endif
 
         Impl(size_t size, uint8 * buffer, uint8 packetsCount, PacketBookmark * packets) : r(0), w(0), sm1(size - 1), buffer(buffer), packets(packets), packetsCount(packetsCount) {}
     };
@@ -372,7 +373,7 @@ namespace Network { namespace Client {
     /** The ring buffer storage size. Must be a power of 2 */
     RingBufferStorage::RingBufferStorage(const size_t bufferSize, const size_t maxPacketCount) : impl(allocImpl(bufferSize, maxPacketCount)) {}
     RingBufferStorage::~RingBufferStorage() { ::free0(impl); }
-
+#endif
 
     /** Common base interface that's common to all implementation using CRTP to avoid code duplication */
     template <typename Child>
@@ -399,7 +400,10 @@ namespace Network { namespace Client {
         /** The last unsubscribe error code */
         MQTTv5::ErrorType::Type     lastUnsubscribeError;
 #endif
-
+#if MQTTQoSSupportLevel == 1
+        /** The storage interface */
+        PacketStorage *     storage;
+#endif
         /** The reading state. Because data on a TCP stream is
             a stream, we have to remember what state we are currently following while parsing data */
         enum RecvState
@@ -415,8 +419,6 @@ namespace Network { namespace Client {
         uint32              available;
         /** The receiving buffer */
         Buffers             buffers;
-        /** The storage interface */
-        PacketStorage *     storage;
         /** The receiving VBInt size for the packet header */
         uint8               packetExpectedVBSize;
         /** The current MQTT state in the state machine */
@@ -428,15 +430,24 @@ namespace Network { namespace Client {
         }
 
         ImplBase(const char * clientID, MessageReceived * callback, const Protocol::MQTT::Common::DynamicBinDataView * brokerCert, PacketStorage * storage)
-             : brokerCert(brokerCert), storage(storage), clientID(clientID), cb(callback), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+             : brokerCert(brokerCert), clientID(clientID), cb(callback), lastCommunication(0), publishCurrentId(0), keepAlive(300),
 #if MQTTUseUnsubscribe == 1
                unsubscribeId(0), lastUnsubscribeError(ErrorType::WaitingForResult),
 #endif
+#if MQTTQoSSupportLevel == 1
+               storage(storage),
+#endif
                recvState(Ready), buffers(max(callback->maxPacketSize(), 8U), min(callback->maxUnACKedPackets(), 127U)), maxPacketSize(65535), available(0), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), 8U)).getSize()), state(State::Unknown)
         {
+#if MQTTQoSSupportLevel == 1
             if (!storage) this->storage = new RingBufferStorage(buffers.size, buffers.packetsCount() * 2);
+#else
+            (void)storage; // Prevent variable unused warning
+#endif
         }
+#if MQTTQoSSupportLevel == 1
         ~ImplBase() { delete0(storage); }
+#endif
 
         bool shouldPing()
         {
@@ -635,6 +646,8 @@ namespace Network { namespace Client {
             if (packet.copyInto(buffer) != packetSize)
                 return ErrorType::UnknownError;
 
+#if MQTTQoSSupportLevel == -1
+#else
             // Check for saving publish packet if required
             if (isPublish)
             {
@@ -642,16 +655,17 @@ namespace Network { namespace Client {
                 uint8 QoS = publish.header.getQoS();
                 if (QoS > 0) {
                     uint16 packetID = publish.fixedVariableHeader.packetID;
+  #if MQTTQoSSupportLevel == 1
                     // Save packet
                     if (!storage->savePacketBuffer(packetID, buffer, packetSize))
                         return ErrorType::StorageError;
-
+  #endif
                     // Save packet ID too
                     if ((QoS == 1 && !buffers.storeQoS1ID(packetID)) || (QoS == 2 && !buffers.storeQoS2ID(packetID)))
                         return ErrorType::StorageError;
                 }
             }
-
+#endif
 
     #if MQTTDumpCommunication == 1
     //      String out;
@@ -751,25 +765,33 @@ namespace Network { namespace Client {
                         resetPacketReceivingState();
                         return ErrorType::TranscientPacket;
                     }
+#if MQTTQoSSupportLevel == -1
+                    return ErrorType::NetworkError;
+#else
 
                     packetID = packet.fixedVariableHeader.packetID;
 
                     bool store = (QoS == 1) ? buffers.storeQoS1ID(packetID | 0x10000) : buffers.storeQoS2ID(packetID | 0x10000);
                     if (!store) return ErrorType::StorageError;
                     next = (QoS == 1) ? Protocol::MQTT::V5::ControlPacketType::PUBACK : Protocol::MQTT::V5::ControlPacketType::PUBREC;
+#endif
                 } else
                 {
+#if MQTTQoSSupportLevel == -1
+                    return ErrorType::NetworkError;
+#else
                     Protocol::MQTT::V5::PublishReplyPacket reply(type);
                     int ret = extractControlPacket(type, reply);
                     if (ret <= 0) return ErrorType::NetworkError;
 
                     packetID = reply.fixedVariableHeader.packetID;
+#if MQTTQoSSupportLevel == 1
                     if (typeMask & State::releaseBufferMask)
                     {
                         if (!storage->releasePacketBuffer(packetID)) // They always come from us
                             return ErrorType::StorageError;
                     }
-
+#endif
                     if (typeMask & State::releaseIDMask)
                     {
                         if (!buffers.releaseID(packetID)) // They always come from us
@@ -778,8 +800,11 @@ namespace Network { namespace Client {
                     {   // We need to reply to the broker (for example: PUBREL or PUBREC)
                         next = Protocol::MQTT::Common::Helper::getNextPacketType(type);
                     }
+#endif
                 }
 
+#if MQTTQoSSupportLevel == -1
+#else
                 if (next != Protocol::MQTT::V5::RESERVED)
                 {   // We need to reply to the broker
                     // Send the answer
@@ -799,6 +824,7 @@ namespace Network { namespace Client {
 
                 resetPacketReceivingState();
                 return ErrorType::TranscientPacket;
+#endif
             }
             // Ok, done
             return ErrorType::Success;
@@ -910,6 +936,7 @@ namespace Network { namespace Client {
 #endif
                 // Ok, the connection was accepted (and authentication cleared).
                 state = State::Running;
+#if MQTTQoSSupportLevel == 1
                 // Check if we need to resend some unACK'ed packets
                 uint8 resend = buffers.countSentID();
                 if (resend)
@@ -956,6 +983,9 @@ namespace Network { namespace Client {
                              // position of the next ID don't move. At this step, any new ID will be processed later on.
                     }
                 }
+#else
+                buffers.reset();
+#endif
                 return ErrorType::Success;
             }
             return Protocol::MQTT::V5::ProtocolError;
@@ -1583,7 +1613,12 @@ namespace Network { namespace Client {
             return ErrorType::BadParameter;
 
         // Create the subscribe topic here
+#if MQTTQoSSupportLevel == -1
+        // Don't support anything above QoS 0
+        Protocol::MQTT::V5::SubscribeTopic topic(_topic, retainHandling, retainAsPublished, !withAutoFeedBack, QoSDelivery::AtMostOne, true);
+#else
         Protocol::MQTT::V5::SubscribeTopic topic(_topic, retainHandling, retainAsPublished, !withAutoFeedBack, maxAcceptedQoS, true);
+#endif
         // Then proceed to subscribing
         return subscribe(topic, properties);
     }
@@ -1715,9 +1750,14 @@ namespace Network { namespace Client {
 #endif
 
         // Create header now
-        bool withAnswer = QoS != QoSDelivery::AtMostOne;
         packet.header.setRetain(retain);
+#if MQTTQoSSupportLevel == -1
+        const bool withAnswer = false;
+        packet.header.setQoS((uint8)QoSDelivery::AtMostOne);
+#else
+        bool withAnswer = QoS != QoSDelivery::AtMostOne;
         packet.header.setQoS((uint8)QoS);
+#endif
         packet.header.setDup(false); // At first, it's not a duplicate message
         packet.fixedVariableHeader.packetID = withAnswer ? impl->allocatePacketID() : 0; // Only if QoS is not 0
         packet.fixedVariableHeader.topicName = topic;
