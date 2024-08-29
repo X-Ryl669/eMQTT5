@@ -16,6 +16,7 @@ namespace Network
     namespace Client
     {
 #ifndef HasMsgRecvCB
+  #if MQTTQoSSupportLevel == 1
         /** Packet storage callback interface you must overload if you intend to reconnect upon network failure.
             In MQTTv5, since communication happens on a reliable transport (TCP), a QoS PUBLISH packet can be retransmitted
             ONLY IF it isn't acknowledged AND a network disconnection happens.
@@ -83,7 +84,10 @@ namespace Network
             Impl * impl;
             friend struct Impl;
         };
-
+  #else
+        // Other value for QoS support level don't need to store QoS packet anyway
+        typedef void PacketStorage;
+  #endif
         /** Message received callback interface you must overload. */
         struct MessageReceived
         {
