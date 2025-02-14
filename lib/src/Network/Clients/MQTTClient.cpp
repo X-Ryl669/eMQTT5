@@ -99,7 +99,7 @@ namespace Network { namespace Client {
             return count;
         }
 
-        Buffers(uint32 size, uint32 maxID) : buffer((uint8*)::calloc(size + maxID * 3 * sizeof(uint32), 1)), size(size), maxID((uint8)(maxID * 3)) {}
+        Buffers(uint32 size, uint32 maxID) : size(size), buffer((uint8*)::calloc(size + maxID * 3 * sizeof(uint32), 1)), maxID((uint8)(maxID * 3)) {}
         ~Buffers() { ::free(buffer); buffer = 0; size = 0; maxID = 0; }
 
         uint32  size;
@@ -436,7 +436,7 @@ namespace Network { namespace Client {
 #if MQTTQoSSupportLevel == 1
                storage(storage),
 #endif
-               recvState(Ready), buffers(max(callback->maxPacketSize(), 8U), min(callback->maxUnACKedPackets(), 127U)), maxPacketSize(65535), available(0), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), 8U)).getSize()), state(State::Unknown)
+               recvState(Ready), maxPacketSize(65535), available(0), buffers(max(callback->maxPacketSize(), 8U), min(callback->maxUnACKedPackets(), 127U)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), 8U)).getSize()), state(State::Unknown)
         {
 #if MQTTQoSSupportLevel == 1
             if (!storage) this->storage = new RingBufferStorage(buffers.size, buffers.packetsCount() * 2);
@@ -739,7 +739,7 @@ namespace Network { namespace Client {
             }
 
             // Check for unexpected packet
-            if (State::expectedPacketMask[state] & typeMask == 0)
+            if ((State::expectedPacketMask[state] & typeMask) == 0)
                 return ErrorType::NetworkError;
 
             // Handle publish packets if needed
@@ -1695,7 +1695,6 @@ namespace Network { namespace Client {
 #endif
 
         packet.fixedVariableHeader.packetID = impl->allocatePacketID();
-//        impl->unsubscribeId = packet.fixedVariableHeader.packetID;
         packet.payload.topics = &topics;
 
         impl->setConnectionState(State::Unsubscribing);
