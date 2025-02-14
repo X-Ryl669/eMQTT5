@@ -30,7 +30,7 @@
 #endif
 
 // Safety checks for this configuration
-#include <atomic> 
+#include <atomic>
 
 
 // Try to find out the endianness of the target system (this might fail)
@@ -289,31 +289,31 @@
 
 
     #ifndef DontWantUINT8
-        typedef unsigned char uint8;
+        typedef uint8_t uint8;
     #endif
     #ifndef DontWantUINT32
-        typedef unsigned int uint32;
+        typedef uint32_t uint32;
     #endif
     #ifndef DontWantUINT16
-        typedef unsigned short uint16;
+        typedef uint16_t uint16;
     #endif
 
     #ifndef DontWantUINT64
-        typedef unsigned long long uint64;
+        typedef uint64_t uint64;
     #endif
 
     #ifndef DontWantINT8
-        typedef signed char int8;
+        typedef int8_t int8;
     #endif
     #ifndef DontWantINT32
-        typedef signed int int32;
+        typedef int32_t int32;
     #endif
     #ifndef DontWantINT16
-        typedef signed short int16;
+        typedef int16_t int16;
     #endif
 
     #ifndef DontWantINT64
-        typedef long long int64;
+        typedef int64_t int64;
     #endif
         #ifndef DontWantNativeInt
         typedef intptr_t nativeint;
@@ -380,7 +380,7 @@
         #define TLSDecl SORRY_THIS_PLATFORM_DOES_NOT_SUPPORT_THREADS
     #endif
 #else
-    #define TLSDecl 
+    #define TLSDecl
 #endif
 
 #ifndef min
@@ -461,7 +461,7 @@ inline size_t Monsanto(const size_t x, const size_t wordSize = 4) { return (x + 
     #define Aligned(X)
     #define ForcedInline(X) X
     #define Unused(X) X
-    #define Hidden 
+    #define Hidden
 #endif
 #define ForceUndefinedSymbol(x) void* __ ## x ## _fp =(void*)&x;
 
