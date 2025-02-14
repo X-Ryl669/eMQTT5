@@ -436,7 +436,7 @@ namespace Network { namespace Client {
 #if MQTTQoSSupportLevel == 1
                storage(storage),
 #endif
-               recvState(Ready), maxPacketSize(65535), available(0), buffers(max(callback->maxPacketSize(), 8U), min(callback->maxUnACKedPackets(), 127U)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), 8U)).getSize()), state(State::Unknown)
+               recvState(Ready), maxPacketSize(65535), available(0), buffers(max(callback->maxPacketSize(), (uint32)8UL), min(callback->maxUnACKedPackets(), (uint32)127UL)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), (uint32)8UL)).getSize()), state(State::Unknown)
         {
 #if MQTTQoSSupportLevel == 1
             if (!storage) this->storage = new RingBufferStorage(buffers.size, buffers.packetsCount() * 2);
