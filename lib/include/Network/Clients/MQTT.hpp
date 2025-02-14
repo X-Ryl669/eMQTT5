@@ -203,7 +203,6 @@ namespace Network
 
                 ErrorType(const Type type) : errorCode(type) {}
                 ErrorType(const ReasonCodes code) : errorCode(code) {}
-                ErrorType(const ErrorType & type) : errorCode(type.errorCode) {}
             };
 
 
@@ -216,11 +215,6 @@ namespace Network
             /** The PImpl idiom used here to avoid exposing the internal implementation */
             Impl * impl;
             friend struct Impl;
-
-            // Helpers
-        private:
-            /** Enter a publish cycle. This is called upon publishing or receiving a published packet */
-            ErrorType enterPublishCycle(Protocol::MQTT::V5::ControlPacketSerializableImpl & publishPacket, bool sending = false);
 
             // Interface
         public:
