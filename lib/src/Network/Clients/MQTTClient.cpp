@@ -374,6 +374,18 @@ namespace Network { namespace Client {
     RingBufferStorage::~RingBufferStorage() { ::free0(impl); }
 #endif
 
+    static uint32 timeoutInMs(const struct timeval & tv)
+    {
+        return tv.tv_sec * 1024 + (tv.tv_usec / 977);
+    }
+
+    static struct timeval timeoutFromMs(const uint32 timeout)
+    {
+        return timeval { (uint32)timeout / 1024, // Avoid division here (compiler should shift the value here), the value is approximative anyway
+                         ((uint32)timeout & 1023) * 977};  // Avoid modulo here and make sure it doesn't overflow (since 1023 * 977 < 1000000)
+
+    }
+
     /** Common base interface that's common to all implementation using CRTP to avoid code duplication */
     template <typename Child>
     struct ImplBase
@@ -485,7 +497,7 @@ namespace Network { namespace Client {
 
 #if MQTTLowLatency == 1
             // In low latency mode, return as early as possible
-            if (lowLatency && !this->socket->select(true, false, 0)) return -2;
+            if (lowLatency && !that()->socket->select(true, false, 0)) return -2;
 #endif
 
             // We want to keep track of complete timeout time over multiple operations
@@ -1105,8 +1117,7 @@ namespace Network { namespace Client {
             while (state.exchange(true, std::memory_order_acq_rel))
             {
                 // Put a sleep method here (using select here since it's cross platform in BSD socket API)
-                struct timeval tv;
-                tv.tv_sec = 0; tv.tv_usec = 500; // Wait 0.5ms per loop
+                struct timeval tv = timeoutFromMs(1); // Wait 1ms per loop
                 select(0, NULL, NULL, NULL, &tv);
             }
         }
@@ -1243,9 +1254,7 @@ namespace Network { namespace Client {
         MQTTVirtual int select(bool reading, bool writing, const uint32 timeoutMillis = (uint32)-1)
         {
             // Linux modifies the timeout when calling select
-            struct timeval v;
-            if (timeoutMillis == (uint32)-1) v = timeoutMs;
-            else { v.tv_sec = timeoutMillis / 1000; v.tv_usec = (timeoutMillis % 1000) * 1000; }
+            struct timeval v = timeoutMillis == (uint32)-1 ? timeoutMs : timeoutFromMs(timeoutMillis);
 
             fd_set set;
             FD_ZERO(&set);
@@ -1401,19 +1410,15 @@ namespace Network { namespace Client {
         Lock                        sendLock;
         /** This client socket */
         BaseSocket *                socket;
-                /** The default timeout in milliseconds */
+        /** The default timeout in milliseconds */
         struct timeval              timeoutMs;
 
         Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert, PacketStorage * storage)
              : ImplBase(clientID, callback, brokerCert, storage), socket(0), timeoutMs({3, 0}) {}
         ~Impl() { delete0(socket); }
 
-        uint32 getTimeout() const { return 0; }
-        inline void setTimeout(uint32 timeout)
-        {
-            timeoutMs.tv_sec = (uint32)timeout / 1024; // Avoid division here (compiler should shift the value here), the value is approximative anyway
-            timeoutMs.tv_usec = ((uint32)timeout & 1023) * 977;  // Avoid modulo here and make sure it doesn't overflow (since 1023 * 977 < 1000000)
-        }
+        uint32 getTimeout() const { return timeoutInMs(timeoutMs); }
+        inline void setTimeout(uint32 timeout) { timeoutMs = timeoutFromMs(timeout); }
 
         int recv(char* buf, int len, uint32 & timeout)
         {
