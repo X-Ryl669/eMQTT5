@@ -381,8 +381,8 @@ namespace Network { namespace Client {
 
     static struct timeval timeoutFromMs(const uint32 timeout)
     {
-        return timeval { (uint32)timeout / 1024, // Avoid division here (compiler should shift the value here), the value is approximative anyway
-                         ((uint32)timeout & 1023) * 977};  // Avoid modulo here and make sure it doesn't overflow (since 1023 * 977 < 1000000)
+        return timeval { (time_t)(timeout / 1024), // Avoid division here (compiler should shift the value here), the value is approximative anyway
+                         (suseconds_t)((timeout & 1023) * 977)};  // Avoid modulo here and make sure it doesn't overflow (since 1023 * 977 < 1000000)
 
     }
 
