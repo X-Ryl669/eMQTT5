@@ -17,6 +17,10 @@ IF (${CROSSPLATFORM_SOCKET} STREQUAL "ON" AND ${ENABLE_TLS} STREQUAL "ON")
   message(WARNING "Building crossplatform socket code with TLS is not supported yet, disabling TLS code")
 ENDIF()
 
+IF (ENABLE_TLS AND MBEDTLS_SUBMODULE)
+    target_link_libraries(eMQTT5 PUBLIC mbedcrypto mbedtls mbedx509)
+ENDIF()
+
 target_compile_definitions(eMQTT5 PUBLIC _DEBUG=$<CONFIG:Debug> 
                                         MinimalFootPrint=$<STREQUAL:${REDUCED_FOOTPRINT},ON>
                                         MQTTOnlyBSDSocket=$<STREQUAL:${CROSSPLATFORM_SOCKET},OFF> 
