@@ -346,11 +346,16 @@ namespace Network
                                     $ echo | openssl s_client -servername your.server.com -connect your.server.com:8883 2>/dev/null | openssl x509 > cert.pem
                                     If you have a PEM encoded certificate, use this code to convert it to (33% smaller) DER format
                                     $ openssl x509 -in cert.pem -outform der -out cert.der
+                @param clientCert   If provided, contains a view on the DER encoded client's certificate to provide on connection.
+                                    Required for two-way / mutual TLS.
+                @param clientKey    If provided, contains a view on the client's private key
+                                    Required for two-way / mutual TLS.
                 @param storage      A pointer to a PacketStorage implementation (used for QoS retransmission) that's owned.
                                     If null a default one will be used that stores packet in a ring buffer (allocating memory for it).
                                     You can use "new PacketStorage()" here to skip any memory allocation but the client won't be 100% compliant here,
                                     it'll just fail to retransmit any QoS packet after resuming from a connection loss. */
-            MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert = 0, PacketStorage * storage = 0);
+            MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert = 0,
+                   const DynamicBinDataView * clientCert = 0, const DynamicBinDataView * clientKey = 0, PacketStorage * storage = 0);
             /** Default destructor */
             ~MQTTv5();
 
