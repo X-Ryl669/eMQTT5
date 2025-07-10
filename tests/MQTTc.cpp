@@ -191,7 +191,7 @@ int main(int argc, const char ** argv)
         pClientKeyView = &clientKeyView;
     }
 
-    Network::Client::MQTTv5 client(clientID, &receiver, pBrokerCertView, pClientCertView, pClientKeyView);
+    Network::Client::MQTTv5 client(clientID, &receiver, nullptr, pBrokerCertView, pClientCertView, pClientKeyView);
 #else
     Network::Client::MQTTv5 client(clientID, &receiver);
 #endif

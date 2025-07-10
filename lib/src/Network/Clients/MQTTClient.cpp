@@ -443,9 +443,8 @@ namespace Network { namespace Client {
             return ++publishCurrentId;
         }
 
-        ImplBase(const char * clientID, MessageReceived * callback, const Protocol::MQTT::Common::DynamicBinDataView * brokerCert,
-                 const Protocol::MQTT::Common::DynamicBinDataView * clientCert, const Protocol::MQTT::Common::DynamicBinDataView * clientKey,
-                 PacketStorage * storage)
+        ImplBase(const char * clientID, MessageReceived * callback, PacketStorage * storage, const Protocol::MQTT::Common::DynamicBinDataView * brokerCert,
+                 const Protocol::MQTT::Common::DynamicBinDataView * clientCert, const Protocol::MQTT::Common::DynamicBinDataView * clientKey)
              : brokerCert(brokerCert), clientCert(clientCert), clientKey(clientKey), clientID(clientID), cb(callback),
              lastCommunication(0), publishCurrentId(0), keepAlive(300),
 #if MQTTUseUnsubscribe == 1
@@ -1442,9 +1441,9 @@ namespace Network { namespace Client {
         /** The default timeout in milliseconds */
         struct timeval              timeoutMs;
 
-        Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert,
-             const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey, PacketStorage * storage)
-             : ImplBase(clientID, callback, brokerCert, clientCert, clientKey, storage), socket(0), timeoutMs({3, 0}) {}
+        Impl(const char * clientID, MessageReceived * callback,  PacketStorage * storage, const DynamicBinDataView * brokerCert,
+             const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey)
+             : ImplBase(clientID, callback, storage, brokerCert, clientCert, clientKey), socket(0), timeoutMs({3, 0}) {}
         ~Impl() { delete0(socket); }
 
         uint32 getTimeout() const { return timeoutInMs(timeoutMs); }
@@ -1477,9 +1476,9 @@ namespace Network { namespace Client {
     };
 #endif
 
-    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert,
-                   const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey, PacketStorage * storage)
-                   : impl(new Impl(clientID, callback, brokerCert, clientCert, clientKey, storage)) {}
+    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, PacketStorage * storage,
+                   const DynamicBinDataView * brokerCert, const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey)
+                   : impl(new Impl(clientID, callback, storage, brokerCert, clientCert, clientKey)) {}
     MQTTv5::~MQTTv5() { delete0(impl); }
 
 
