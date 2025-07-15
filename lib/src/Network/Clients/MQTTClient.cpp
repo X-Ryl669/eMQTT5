@@ -34,6 +34,7 @@
 #include <atomic>
   #if MQTTUseTLS == 1
     // We need MBedTLS code
+    #include <mbedtls/certs.h>
     #include <mbedtls/ctr_drbg.h>
     #include <mbedtls/entropy.h>
     #include <mbedtls/error.h>
