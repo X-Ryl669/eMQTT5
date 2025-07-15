@@ -112,7 +112,9 @@ int main(int argc, const char ** argv)
     String password;
     String clientID;
     String subscribe;
-    String certFile;
+    String serverCertFile;
+    String clientCertFile;
+    String clientKeyFile;
     unsigned keepAlive = 300;
     bool   dumpComm = false;
     bool   retainPublishedMessage = false;
@@ -127,7 +129,9 @@ int main(int argc, const char ** argv)
     Arguments::declare(retainPublishedMessage, "Retain published message", "retain");
     Arguments::declare(setQoS, "Quality of service for publishing or subscribing", "qos");
     Arguments::declare(subscribe, "The subscription topic", "subscribe", "sub");
-    Arguments::declare(certFile, "Expected broker certificate in DER format", "der");
+    Arguments::declare(serverCertFile, "Expected broker certificate in DER format", "serverder");
+    Arguments::declare(clientCertFile, "Expected client certificate in DER format", "clientder");
+    Arguments::declare(clientKeyFile, "Expected client private key", "clientkey");
 
     Arguments::declare(dumpComm, "Dump communication", "verbose");
 
@@ -150,15 +154,44 @@ int main(int argc, const char ** argv)
     MessageReceiver receiver;
 
 #if MQTTUseTLS == 1
+    Network::Client::MQTTv5::DynamicBinDataView* pBrokerCertView = nullptr;
     Protocol::MQTT::Common::DynamicBinaryData brokerCert;
-    if (certFile)
+    Protocol::MQTT::Common::DynamicBinDataView brokerCertView;
+    if (serverCertFile)
     {
         // Load the certificate if provided
-        String certContent = readFile(certFile);
+        String certContent = readFile(serverCertFile);
         brokerCert = Protocol::MQTT::Common::DynamicBinaryData(certContent.getLength(), (const uint8*)certContent);
+        brokerCertView = Protocol::MQTT::Common::DynamicBinDataView(brokerCert);
+        pBrokerCertView = &brokerCertView;
     }
-    Protocol::MQTT::Common::DynamicBinDataView certView(brokerCert);
-    Network::Client::MQTTv5 client(clientID, &receiver, certFile ? &certView : (Network::Client::MQTTv5::DynamicBinDataView*)0);
+
+    Network::Client::MQTTv5::DynamicBinDataView* pClientCertView = nullptr;
+    Protocol::MQTT::Common::DynamicBinaryData clientCert;
+    Protocol::MQTT::Common::DynamicBinDataView clientCertView;
+    if (clientCertFile)
+    {
+        String certContent = readFile(clientCertFile);
+        clientCert = Protocol::MQTT::Common::DynamicBinaryData(certContent.getLength(), (const uint8*)certContent);
+        clientCertView = Protocol::MQTT::Common::DynamicBinDataView(clientCert);
+        pClientCertView = &clientCertView;
+    }
+
+    Network::Client::MQTTv5::DynamicBinDataView* pClientKeyView = nullptr;
+    Protocol::MQTT::Common::DynamicBinaryData clientKey;
+    Protocol::MQTT::Common::DynamicBinDataView clientKeyView;
+    if (clientKeyFile)
+    {
+        String keyContent = readFile(clientKeyFile);
+        // mbedtls_pk_parse_key refuses to parse non null-terminated strings
+        auto len = keyContent.getLength();
+        keyContent.insertChars(len, 1, 0);
+        clientKey = Protocol::MQTT::Common::DynamicBinaryData(keyContent.getLength(), (const uint8*)keyContent);
+        clientKeyView = Protocol::MQTT::Common::DynamicBinDataView(clientKey);
+        pClientKeyView = &clientKeyView;
+    }
+
+    Network::Client::MQTTv5 client(clientID, &receiver, nullptr, pBrokerCertView, pClientCertView, pClientKeyView);
 #else
     Network::Client::MQTTv5 client(clientID, &receiver);
 #endif

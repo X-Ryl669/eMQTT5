@@ -34,7 +34,6 @@
 #include <atomic>
   #if MQTTUseTLS == 1
     // We need MBedTLS code
-    #include <mbedtls/certs.h>
     #include <mbedtls/ctr_drbg.h>
     #include <mbedtls/entropy.h>
     #include <mbedtls/error.h>
@@ -392,8 +391,12 @@ namespace Network { namespace Client {
     {
         typedef MQTTv5::ErrorType ErrorType;
 
-        /** The DER encoded certificate (if provided) */
+        /** The DER encoded server certificate (if provided) */
         const Protocol::MQTT::Common::DynamicBinDataView *  brokerCert;
+        /** The DER encoded client certificate (if provided) */
+        const Protocol::MQTT::Common::DynamicBinDataView *  clientCert;
+        /** The client private key (if provided) */
+        const Protocol::MQTT::Common::DynamicBinDataView *  clientKey;
         /** This client unique identifier */
         Protocol::MQTT::Common::DynamicString               clientID;
         /** The message received callback to use */
@@ -440,8 +443,10 @@ namespace Network { namespace Client {
             return ++publishCurrentId;
         }
 
-        ImplBase(const char * clientID, MessageReceived * callback, const Protocol::MQTT::Common::DynamicBinDataView * brokerCert, PacketStorage * storage)
-             : brokerCert(brokerCert), clientID(clientID), cb(callback), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+        ImplBase(const char * clientID, MessageReceived * callback, PacketStorage * storage, const Protocol::MQTT::Common::DynamicBinDataView * brokerCert,
+                 const Protocol::MQTT::Common::DynamicBinDataView * clientCert, const Protocol::MQTT::Common::DynamicBinDataView * clientKey)
+             : brokerCert(brokerCert), clientCert(clientCert), clientKey(clientKey), clientID(clientID), cb(callback),
+             lastCommunication(0), publishCurrentId(0), keepAlive(300),
 #if MQTTUseUnsubscribe == 1
                unsubscribeId(0), lastUnsubscribeError(ErrorType::WaitingForResult),
 #endif
@@ -1041,8 +1046,9 @@ namespace Network { namespace Client {
         /** The default timeout in milliseconds */
         uint32                  timeoutMs;
 
-        Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert, PacketStorage * storage)
-             : ImplBase(clientID, callback, brokerCert, storage), socket(0), timeoutMs(3000) {}
+        Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert,
+             const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey, PacketStorage * storage)
+             : ImplBase(clientID, callback, brokerCert, clientCert, clientKey, storage), socket(0), timeoutMs(3000) {}
         ~Impl() { delete0(socket); }
 
         Time::TimeOut getTimeout() const { return timeoutMs; }
@@ -1177,7 +1183,7 @@ namespace Network { namespace Client {
         int     socket;
         struct timeval &         timeoutMs;
 
-        MQTTVirtual int connect(const char * host, uint16 port, const MQTTv5::DynamicBinDataView *)
+        MQTTVirtual int connect(const char * host, uint16 port, const MQTTv5::DynamicBinDataView *, const MQTTv5::DynamicBinDataView *, const MQTTv5::DynamicBinDataView *)
         {
             socket = ::socket(AF_INET, SOCK_STREAM, 0);
             if (socket == -1) return -2;
@@ -1276,10 +1282,14 @@ namespace Network { namespace Client {
         mbedtls_ssl_context ssl;
         mbedtls_ssl_config conf;
         mbedtls_x509_crt cacert;
+        mbedtls_x509_crt owncert;
+        mbedtls_pk_context pkey;
         mbedtls_net_context net;
 
     private:
-        bool buildConf(const MQTTv5::DynamicBinDataView * brokerCert)
+        bool buildConf(const MQTTv5::DynamicBinDataView * brokerCert,
+                       const MQTTv5::DynamicBinDataView * clientCert = nullptr,
+                       const MQTTv5::DynamicBinDataView * clientKey = nullptr)
         {
             if (brokerCert)
             {   // Use given root certificate (if you have a recent version of mbedtls, you could use mbedtls_x509_crt_parse_der_nocopy instead to skip a useless copy here)
@@ -1302,6 +1312,19 @@ namespace Network { namespace Client {
             if (::mbedtls_ctr_drbg_seed(&entropySource, ::mbedtls_entropy_func, &entropy, NULL, 0))
                 return false;
 
+            // Load client cert and key (for mTLS)
+            if (clientCert && clientKey)
+            {
+                if (::mbedtls_x509_crt_parse_der(&owncert, clientCert->data, clientCert->length))
+                    return false;
+
+                if (::mbedtls_pk_parse_key(&pkey, clientKey->data, clientKey->length, nullptr, 0, ::mbedtls_ctr_drbg_random, &entropySource))
+                    return false;
+
+                if (::mbedtls_ssl_conf_own_cert(&conf, &owncert, &pkey))
+                    return false;
+            }
+
             if (::mbedtls_ssl_setup(&ssl, &conf))
                 return false;
 
@@ -1314,13 +1337,16 @@ namespace Network { namespace Client {
             mbedtls_ssl_init(&ssl);
             mbedtls_ssl_config_init(&conf);
             mbedtls_x509_crt_init(&cacert);
+            mbedtls_x509_crt_init(&owncert);
+            mbedtls_pk_init(&pkey);
             mbedtls_ctr_drbg_init(&entropySource);
             mbedtls_entropy_init(&entropy);
         }
 
-        int connect(const char * host, uint16 port, const MQTTv5::DynamicBinDataView * brokerCert)
+        int connect(const char * host, uint16 port, const MQTTv5::DynamicBinDataView * brokerCert,
+                    const MQTTv5::DynamicBinDataView * clientCert, const MQTTv5::DynamicBinDataView * clientKey)
         {
-            int ret = BaseSocket::connect(host, port, 0);
+            int ret = BaseSocket::connect(host, port, 0, 0, 0);
             if (ret) return ret;
 
             // MBedTLS doesn't deal with natural socket timeout correctly, so let's fix that
@@ -1330,7 +1356,7 @@ namespace Network { namespace Client {
 
             net.fd = socket;
 
-            if (!buildConf(brokerCert))                                             return -8;
+            if (!buildConf(brokerCert, clientCert, clientKey))                      return -8;
             if (::mbedtls_ssl_set_hostname(&ssl, host))                             return -9;
 
             // Set the method the SSL engine is using to fetch/send data to the other side
@@ -1396,6 +1422,8 @@ namespace Network { namespace Client {
         {
             mbedtls_ssl_close_notify(&ssl);
             mbedtls_x509_crt_free(&cacert);
+            mbedtls_x509_crt_free(&owncert);
+            mbedtls_pk_free(&pkey);
             mbedtls_entropy_free(&entropy);
             mbedtls_ssl_config_free(&conf);
             mbedtls_ctr_drbg_free(&entropySource);
@@ -1413,8 +1441,9 @@ namespace Network { namespace Client {
         /** The default timeout in milliseconds */
         struct timeval              timeoutMs;
 
-        Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert, PacketStorage * storage)
-             : ImplBase(clientID, callback, brokerCert, storage), socket(0), timeoutMs({3, 0}) {}
+        Impl(const char * clientID, MessageReceived * callback,  PacketStorage * storage, const DynamicBinDataView * brokerCert,
+             const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey)
+             : ImplBase(clientID, callback, storage, brokerCert, clientCert, clientKey), socket(0), timeoutMs({3, 0}) {}
         ~Impl() { delete0(socket); }
 
         uint32 getTimeout() const { return timeoutInMs(timeoutMs); }
@@ -1436,7 +1465,7 @@ namespace Network { namespace Client {
                 withTLS ? new MBTLSSocket(timeoutMs) :
 #endif
                 new BaseSocket(timeoutMs);
-            return socket ? socket->connect(host, port, brokerCert) : -1;
+            return socket ? socket->connect(host, port, brokerCert, clientCert, clientKey) : -1;
         }
 
         int sendImpl(const char * buffer, const int size)
@@ -1447,7 +1476,9 @@ namespace Network { namespace Client {
     };
 #endif
 
-    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert, PacketStorage * storage) : impl(new Impl(clientID, callback, brokerCert, storage)) {}
+    MQTTv5::MQTTv5(const char * clientID, MessageReceived * callback, PacketStorage * storage,
+                   const DynamicBinDataView * brokerCert, const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey)
+                   : impl(new Impl(clientID, callback, storage, brokerCert, clientCert, clientKey)) {}
     MQTTv5::~MQTTv5() { delete0(impl); }
 
 
