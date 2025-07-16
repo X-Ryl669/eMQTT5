@@ -82,7 +82,7 @@ ENDIF()
 
 
 IF (CROSSPLATFORM_SOCKET STREQUAL OFF AND ENABLE_TLS STREQUAL ON)
-    target_link_libraries(MQTTc LINK_PRIVATE mbedtls mbedcrypto mbedx509)
+    target_link_libraries(MQTTc LINK_PRIVATE mbedx509 mbedtls mbedcrypto)
 ENDIF()
 
 
