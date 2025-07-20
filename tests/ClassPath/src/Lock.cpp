@@ -715,10 +715,6 @@ void Threading::FastLock::_Unlock(void * arg) volatile
 }
 
 
-  #if defined(_POSIX) && !defined(HAS_ATOMIC_BUILTIN)
-HMUTEX Threading::SharedData<uint32>::sxMutex = PTHREAD_MUTEX_INITIALIZER;
-  #endif
-
   #if defined(NO_ATOMIC_BUILTIN64) && (HAS_STD_ATOMIC != 1)
     #if defined(_POSIX)
 HMUTEX Threading::sxMutex = PTHREAD_MUTEX_INITIALIZER;
