@@ -3,6 +3,7 @@
 
 // We need basic types
 #include <Types.hpp>
+#include <MQTTTypes.hpp>
 // We need Platform code for allocations too
 #include <Platform/Platform.hpp>
 
@@ -65,35 +66,8 @@ namespace Protocol
             /** Check if serialization shortcut was used */
             static inline bool isShortcut(uint32 value) { return value == Shortcut; }
 
-            /** A cross platform bitfield class that should be used in union like this:
-                @code
-                union
-                {
-                    T whatever;
-                    BitField<T, 0, 1> firstBit;
-                    BitField<T, 7, 1> lastBit;
-                    BitField<T, 2, 2> someBits;
-                };
-                @endcode */
-            template <typename T, int Offset, int Bits>
-            struct BitField
-            {
-                /** This is public to avoid undefined behavior while used in union */
-                T value;
-
-                static_assert(Offset + Bits <= (int) sizeof(T) * 8, "Member exceeds bitfield boundaries");
-                static_assert(Bits < (int) sizeof(T) * 8, "Can't fill entire bitfield with one member");
-
-                /** Base constants are typed to T so we skip type conversion everywhere */
-                static const T Maximum = (T(1) << Bits) - 1;
-                static const T Mask = Maximum << Offset;
-
-                /** Main access operator, use like any other member */
-                inline operator T() const { return (value >> Offset) & Maximum; }
-                /** Assign operator */
-                inline BitField & operator = (T v) { value = (value & ~Mask) | (v << Offset); return *this; }
-            };
-
+            /** Using the main bitfield class declared in eCommon/Types.hpp */
+            using ::BitField;
 
             /** The base interface all MQTT serializable structure must implement */
             struct Serializable

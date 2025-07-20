@@ -2,7 +2,7 @@
 #define hpp_Time_hpp
 
 // We need base types
-#include "Types.hpp"
+#include "MQTTTypes.hpp"
 // We need strings too
 #include "Strings/Strings.hpp"
 

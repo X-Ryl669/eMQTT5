@@ -2,7 +2,7 @@
 #define h_CPP_Lock_CPP_h
 
 // Include object naming
-#include "Types.hpp"
+#include "MQTTTypes.hpp"
 // We need time declaration too
 #include <time.h>
 
@@ -760,8 +760,8 @@ namespace Threading
     class SharedData<uint32>
     {
     private:
-        SharedData<uint32>(const SharedData<uint32> & other);
-        SharedData<uint32> operator = (const SharedData<uint32> & other);
+        SharedData(const SharedData & other);
+        SharedData operator = (const SharedData & other);
     // No instancing allowed
     protected:
         volatile uint32 & shared;

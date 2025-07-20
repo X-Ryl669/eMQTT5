@@ -1,7 +1,7 @@
 #ifndef hpp_eMQTTTypes_hpp
 #define hpp_eMQTTTypes_hpp
 
-
+#include "Types.hpp"
 
 // Configure the typical macros
 #if __linux == 1
@@ -96,6 +96,7 @@
     #include <netinet/in.h>
     #include <pthread.h>
     #include <signal.h>
+    #include <unistd.h>
     #include <sys/poll.h>
     #include <sys/socket.h>
     #include <sys/time.h>
@@ -383,20 +384,6 @@
     #define TLSDecl
 #endif
 
-#ifndef min
-    template <typename T>
-        inline T min(T a, T b) { return a < b ? a : b; }
-    template <typename T>
-        inline T max(T a, T b) { return a > b ? a : b; }
-    template <typename T>
-        inline T clamp(T a, T low, T high) { return a < low ? low : (a > high ? high : a); }
-    template <typename T, size_t N >
-        inline bool isInArray(const T & a, T (&arr)[N]) { for(size_t i = 0; i < N; i++) if (arr[i] == a) return true; return false; }
-    template <typename T>
-        inline void Swap(T & a, T & b) { T tmp = a; a = b; b = tmp; }
-    #define minDefined
-#endif
-
 // Helper function that should never be omitted
 inline uint8 BigEndian(uint8 a) { return a; }
 
@@ -471,46 +458,6 @@ inline size_t Monsanto(const size_t x, const size_t wordSize = 4) { return (x + 
     #define Final
 #endif
 
-#ifndef DontWantFreeHelpers
-    /** Free a pointer and zero it */
-    template <typename T> inline void free0(T*& t) { free(t); t = 0; }
-    /** Delete a pointer and zero it */
-    template <typename T> inline void delete0(T*& t) { delete t; t = 0; }
-    /** Delete a pointer to an array and zero it */
-    template <typename T> inline void deleteA0(T*& t) { delete[] t; t = 0; }
-    /** Delete a pointer to an array, zero it, and zero the elements count too */
-    template <typename T, typename U> inline void deleteA0(T*& t, U & size) { delete[] t; t = 0; size = 0; }
-    /** Delete all items of an array, delete the array, zero it, and zero the elements count too */
-    template <typename T, typename U> inline void deleteArray0(T*& t, U & size) { for (U i = 0; i < size; i++) delete t[i]; delete[] t; t = 0; size = 0; }
-    /** Delete all array items of an array, delete the array, zero it, and zero the elements count too */
-    template <typename T, typename U> inline void deleteArrayA0(T*& t, U & size) { for (U i = 0; i < size; i++) delete[] t[i]; delete[] t; t = 0; size = 0; }
-
-namespace Private
-{
-    // If the compiler stop here, you're actually trying to figure out the size of an pointer and not a compile-time array.
-    template< typename T, size_t N >
-    char (&ArraySize_REQUIRES_ARRAY_ARGUMENT(T (&)[N]))[N];
-
-    // You can have default derivation from this structure
-    struct Empty {};
-
-    template <typename T>
-    struct Alignment
-    {
-        // C++ standard requires struct's member to be aligned to the largest member's alignment requirement
-        struct In { char p; T q; };
-        enum { value = sizeof(In) - sizeof(T) };
-    };
-}
-
-#define ArrSz(X) sizeof(Private::ArraySize_REQUIRES_ARRAY_ARGUMENT(X))
-#ifndef ArraySize
-   #define ArraySize ArrSz
-#endif
-
-#define AlignOf(X) Private::Alignment<X>::value
-#endif
-
 
 #ifndef TypeDetection_Impl
 #define TypeDetection_Impl
@@ -547,33 +494,6 @@ MakePOD(float);
 #undef MakePOD
 #undef MakeIntPOD
 #endif
-
-#ifndef DontWantSafeBool
-/** Useful Safe bool idiom.
-    @param Derived      The current class that should be "bool" convertible
-    @param Base         If provided, it makes the complete stuff derives from this class, thus avoiding multiple inheritance
-    @code
-       // Before
-       struct A { bool operator !() const; ... };
-       struct B : public C { bool operator !() const; ... };
-
-       // Use like this :
-       struct A : public SafeBool<A> { bool operator !() const; ... };
-       struct B : public SafeBool<B, C> { bool operator !() const; ... };
-
-       A a;
-       if (a) printf("It does!\n");
-    @endcode */
-template <class Derived, class Base = Private::Empty>
-class SafeBool : public Base
-{
-    void badBoolType() {}; typedef void (SafeBool::*badBoolPtr)();
-public:
-    /** When used like in a bool context, this is called */
-    inline operator badBoolPtr() const { return !static_cast<Derived const&>( *this ) ? 0 : &SafeBool::badBoolType; }
-};
-#endif
-
 
 #define WantFloatParsing 1
 

@@ -8,7 +8,7 @@ set_property(TARGET eMQTT5
 )
 
 set_target_properties(eMQTT5 PROPERTIES
-    CXX_STANDARD 11
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
@@ -46,6 +46,9 @@ if (${CROSSPLATFORM_SOCKET} STREQUAL "OFF" AND ${ENABLE_TLS} STREQUAL "ON")
 endif ()
 
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../eCommon eCommon)
+target_link_libraries(eMQTT5 PUBLIC eCommon)
+
 target_include_directories(eMQTT5 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include $<$<STREQUAL:${CROSSPLATFORM_SOCKET},ON>:${CMAKE_CURRENT_SOURCE_DIR}/../tests/ClassPath/include>)
 
 # In recent CMake version, the right way to do is like this, but it fails on older CMake
@@ -58,6 +61,7 @@ target_include_directories(eMQTT5 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include $<$
 #             include/Types.hpp)
 #
 # set_target_properties(eMQTT5 PROPERTIES PUBLIC_HEADER "${header_files}")
+
 
 
 install(TARGETS eMQTT5

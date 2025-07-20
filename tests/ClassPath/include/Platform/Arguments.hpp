@@ -85,7 +85,7 @@ namespace Arguments
             ref = values[0] == "y" || values[0] == "Y" || values[0] == "yes" || values[0] == "true";
             return "";
         }
-        RefAction<bool>(bool & ref) : ref(ref) {}
+        RefAction(bool & ref) : ref(ref) {}
     };
     /** An argument base action based on reference. The action to perform is modifying a referenced value.
         This is specific for unsigned integer based values and allow hexadecimal representation for the argument */

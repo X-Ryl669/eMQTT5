@@ -2,7 +2,7 @@
 #define hpp_CPP_Platform_CPP_hpp
 
 // Types like size_t or NULL
-#include <Types.hpp>
+#include <MQTTTypes.hpp>
 
 /** The platform specific declarations */
 namespace Platform
@@ -180,7 +180,6 @@ namespace Platform
 #endif
     }
     
-#if defined(_POSIX) || defined(_DOXYGEN)
     /** Useful RAII class for Posix file index */
     class FileIndexWrapper
     {
@@ -205,8 +204,6 @@ namespace Platform
         FileIndexWrapper(int fd) : fd(fd) {}
         ~FileIndexWrapper() { if (fd >= 0) close(fd); fd = -1; }
     };
-    
-#endif
 
 }
 
