@@ -1229,19 +1229,23 @@ namespace Network { namespace Client {
             if (ret == 0) return 0;
 
             // Here, we need to wait until connection happens or times out
-            if (select(false, true))
-            {
-                // Restore blocking behavior here
-                if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
-                // And set timeouts for both recv and send
-                if (::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
-                if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
-                // Ok, done!
-                return 0;
-            }
+            if (select(false, true) <= 0) return -7;
 
-            return -7;
+            // Check for any socket errors
+            int err;
+            socklen_t len = sizeof(err);
+            getsockopt(socket, SOL_SOCKET, SO_ERROR, &err, &len);
+            if (err != 0) return -6;
+
+            // Restore blocking behavior here
+            if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
+            // And set timeouts for both recv and send
+            if (::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
+            if (::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeoutMs, sizeof(timeoutMs)) < 0) return -4;
+            // Ok, done!
+            return 0;
         }
+
         MQTTVirtual int recv(char * buffer, const uint32 minLength, const uint32 maxLength = 0)
         {
             int ret = ::recv(socket, buffer, minLength, MSG_WAITALL);
