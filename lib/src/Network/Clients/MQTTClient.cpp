@@ -1235,7 +1235,7 @@ namespace Network { namespace Client {
             int err;
             socklen_t len = sizeof(err);
             getsockopt(socket, SOL_SOCKET, SO_ERROR, &err, &len);
-            if (err != 0) return -6;
+            if (err != 0) return -8;
 
             // Restore blocking behavior here
             if (::fcntl(socket, F_SETFL, socketFlags) != 0) return -3;
