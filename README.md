@@ -4,8 +4,8 @@ An embedded MQTTv5 client in C++ with minimal footprint, maximal performance.
 [![X-Ryl669](https://circleci.com/gh/X-Ryl669/eMQTT5.svg?style=shield)](https://circleci.com/gh/X-Ryl669/eMQTT5)
 
 This repository contains a complete MQTT v5.0 client that's optimized for code size without sacrifying performance.
-This is, to my knowledge, the smallest (and complete!) MQTT v5.0 client for embedded system with a binary size down to less than 17kB on ESP32 (and less than 75kB on MacOSX). 
-MQTT v5.0 is a more complex protocol than MQTT v3.1.1, with the addition of properties in each packet and authentication subsystem. 
+This is, to my knowledge, the smallest (and complete!) MQTT v5.0 client for embedded system with a binary size down to less than 17kB on ESP32 (and less than 75kB on MacOSX).
+MQTT v5.0 is a more complex protocol than MQTT v3.1.1, with the addition of properties in each packet and authentication subsystem.
 
 If you wonder what MQTT is (or isn't), feel free to consult [this page](https://blog.cyril.by/en/documentation/emqtt5-doc/mqtt-minimal-knowledge).
 
@@ -34,23 +34,36 @@ For many reasons:
 
 You'll find the [client API documentation here](https://blog.cyril.by/en/documentation/emqtt5-doc/emqtt5).
 
-There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/APIDoc.md). 
+There are two levels to access this client. The low level implies dealing with packet construction, serialization (without any network code). It's documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/APIDoc.md).
 
 The higher level API which is documented [here](https://github.com/X-Ryl669/eMQTT5/blob/master/doc/ClientAPI.md) is available when you only need to call methods of the `Network::Client::MQTTv5` class (all serialization is done for you).
 
 In all cases, almost all methods avoid allocating memory on the heap (stack is prefered whenever possible).
 There is only few places where heap allocations are performed and they are documented in there respective documentation.
 
-Typically, user-generated [Properties](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1672) are allocating on the heap (in your code, not here) and user-generated [SubscribeTopic](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1938) are also allocating on the heap (in your code, not here). 
+Typically, user-generated [Properties](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1672) are allocating on the heap (in your code, not here) and user-generated [SubscribeTopic](https://github.com/X-Ryl669/eMQTT5/blob/591050dd32b33376c3853b853cfab540edea31be/lib/include/Protocol/MQTT/MQTT.hpp#L1938) are also allocating on the heap (in your code, not here).
 
 An example software is provided that's implementing a complete MQTTv5 client in [MQTTc.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master/tests/MQTTc.cpp) where you can subscribe/publish to a topic. This file, once built on a Linux AMD64 system takes 80kB of binary space without any dependencies.
 
+## Multithreading
+
+There is no lock in this library (except for sending packet to ensure atomicity while publishing a packet). Since any action happens in the `eventLoop()` function (the `messageReceived` callback is called there), it's safe to publish in the callback (the code is re-entrant).
+It's safe to publish from the same thread as the one running the `eventLoop()` function.
+
+If you publish from a different thread than the event thread, the client state can change while publishing (for example if the `eventLoop` thread receives a DISCONNECT packet) meaning that the library can not garantee the result of the operation.
+As of version 2.0.0, a failure in publishing (like a network disconnection) will be reported to the calling code but the client socket will not be closed to avoid a use-after-free error.
+This means that you'll need to manually destruct the client after an error and this will likely require some sort of locking on your side in that multithreading case.
+
+Please notice that there's a lock for sending packets, so that 2 threads that are publishing simultaneously will be serialized and no interleaved data on the network layer could happen.
+You must not call the `eventLoop()` function from multiple threads since there's no lock for protecting data packet receiving.
+
+
 ## Porting to a new platform
-The implementation for a new platform is very quick. 
+The implementation for a new platform is very quick.
 
 The only dependencies for this client rely on a `Lock` class to protect again multithreading access/reentrancy and a `ScopedLock` RAII class for acquiring and releasing the lock upon scope leaving. A default spinlock class is provided in the minimal implementation.
 
-BSD socket API is used with only minimum feature set (only `recv`, `send`, `getaddrinfo`, `select`, `socket`, `close/closesocket`, `setsockopt` is required).  
+BSD socket API is used with only minimum feature set (only `recv`, `send`, `getaddrinfo`, `select`, `socket`, `close/closesocket`, `setsockopt` is required).
 
 The only options used for socket (optional, can be disabled) are: `TCP_NODELAY`, `fcntl/O_NONBLOCK`, `SO_SNDTIMEO`, `SO_RCVTIMEO`)
 
@@ -59,7 +72,7 @@ Please check the [MQTTClient.cpp](https://github.com/X-Ryl669/eMQTT5/blob/master
 There is also a port for ESP32 [here](https://github.com/X-Ryl669/esp-eMQTT5).
 
 ## MQTTv5 Packet parser
-In addition to the client, the tests folder contains a MQTT packet parser for MQTT v5.0. 
+In addition to the client, the tests folder contains a MQTT packet parser for MQTT v5.0.
 It's built by default and used like this:
 ```
 $ # Give it the raw bytes from network communication and it'll dump what it means
@@ -71,7 +84,7 @@ PUBLISH control packet (rlength: 30)
   PUBLISH packet (id 0x0000): Str (24 bytes): status/YOLTyyvuWXPZ/logs
   Properties with length VBInt: 0
   Payload (length: 3)
-``` 
+```
 
 You can also give it a file containing the capture of the network payload:
 ```
@@ -83,5 +96,5 @@ PUBLISH control packet (rlength: 30)
   PUBLISH packet (id 0x0000): Str (24 bytes): status/YOLTyyvuWXPZ/logs
   Properties with length VBInt: 0
   Payload (length: 3)
-``` 
+```
 

@@ -734,7 +734,7 @@ namespace Network { namespace Client {
              * At SUBSCRIBE state: SUBACK / PUBLISH / PUBACK / PUBREC / PUBREL / PUBCOMP / DISCONNECT
              * At UNSUBSCRIBE state: UNSUBACK / PUBLISH / PUBACK / PUBREC / PUBREL / PUBCOMP / DISCONNECT
 
-            If a packet insn't in the mask, it's a protocol error.
+            If a packet isn't in the mask, it's a protocol error.
             Notice that for running states (not the connect/auth/disconnect), you have to deal with
             spurious PUBLISH packets.
 
