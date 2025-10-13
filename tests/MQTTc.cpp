@@ -10,6 +10,11 @@
 #include "Platform/Arguments.hpp"
 #include "Logger/Logger.hpp"
 
+#define TestMultithreadPublishing 0
+
+#if TestMultithreadPublishing == 1
+  #include <thread>
+#endif
 
 typedef Strings::FastString String;
 
@@ -101,6 +106,23 @@ String readFile(const String & path)
     int r = fread(ret.Alloc(size), 1, size, f);
     ret.releaseLock(r);
     return ret;
+}
+#endif
+
+#if TestMultithreadPublishing == 1
+void publishingThread(void * data)
+{
+    Network::Client::MQTTv5 * client = (Network::Client::MQTTv5*)data;
+    while (cont)
+    {
+        // Publish
+        if (Network::Client::MQTTv5::ErrorType ret = client->publish(publishTopic, publishMessage, publishMessage.getLength(), false, QoS))
+        {
+            fprintf(stderr, "Failed publishing %s to %s with error: %d\n", (const char*)publishMessage, (const char*)publishTopic, (int)ret);
+        }
+        printf("Published %s to %s\n", (const char*)publishMessage, (const char*)publishTopic);
+        sleep(1);
+    }
 }
 #endif
 
@@ -217,6 +239,8 @@ int main(int argc, const char ** argv)
     }
     printf("Connected to %s\n", (const char*)serverURL.asText());
 
+
+
     // Check if we have some subscription
     if (subscribe)
     {
@@ -256,6 +280,31 @@ int main(int argc, const char ** argv)
     // Check if we have something to publish
     if (publishTopic)
     {
+#if TestMultithreadPublishing == 1
+        std::thread publishThread(publishingThread, &client);
+
+        signal(SIGINT, ctrlc);
+        while (cont)
+        {
+            if (Network::Client::MQTTv5::ErrorType ret = client.eventLoop())
+            {
+                fprintf(stderr, "Event loop failed with error: %d\n", (int)ret);
+                if (!cont) break; // Fast shutdown
+                sleep(1);
+                // Trying to reconnect now
+                client.setClientID(nullptr); // Reset the client ID since we're asking for a clean session here
+                if (Network::Client::MQTTv5::ErrorType ret = client.connectTo(serverURL.getAuthority(), port, serverURL.getScheme().caselessEqual("mqtts"),
+                                                                            (uint16)min(65535U, keepAlive), true, username ? (const char*)username : nullptr, password ? &pw : nullptr))
+                {
+                    fprintf(stderr, "Failed connection to %s with error: %d\n", (const char*)serverURL.asText(), (int)ret);
+                }
+                printf("Reconnected to %s\n", (const char*)serverURL.asText());
+
+            }
+        }
+        publishThread.join();
+
+#else
         // Publish
         if (Network::Client::MQTTv5::ErrorType ret = client.publish(publishTopic, publishMessage, publishMessage.getLength(), retainPublishedMessage, QoS))
         {
@@ -270,6 +319,7 @@ int main(int argc, const char ** argv)
             if (Network::Client::MQTTv5::ErrorType ret = client.eventLoop())
                 return fprintf(stderr, "Event loop failed with error: %d\n", (int)ret);
         }
+#endif
         return 0;
     }
 

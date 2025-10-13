@@ -441,6 +441,10 @@ namespace Network { namespace Client {
         uint8               packetExpectedVBSize;
         /** The current MQTT state in the state machine */
         State::MQTT         state;
+        /** An atomic state used as a reference count for accessing the socket.
+            The default is 0=>unbuild, 1=>for built and then it tracks the current user count. High bit is used to mark the socket as error and prevent capturing for any usage */
+        std::atomic<uint32> usage;
+        std::atomic<uint32> errored;
 
         uint16 allocatePacketID()
         {
@@ -457,7 +461,8 @@ namespace Network { namespace Client {
 #if MQTTQoSSupportLevel == 1
                storage(storage),
 #endif
-               recvState(Ready), maxPacketSize(65535), available(0), buffers(max(callback->maxPacketSize(), (uint32)8UL), min(callback->maxUnACKedPackets(), (uint32)127UL)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), (uint32)8UL)).getSize()), state(State::Unknown)
+               recvState(Ready), maxPacketSize(65535), available(0), buffers(max(callback->maxPacketSize(), (uint32)8UL), min(callback->maxUnACKedPackets(), (uint32)127UL)),
+               packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), (uint32)8UL)).getSize()), state(State::Unknown), usage(0), errored(1)
         {
 #if MQTTQoSSupportLevel == 1
             if (!storage) this->storage = new RingBufferStorage(buffers.size, buffers.packetsCount() * 2);
@@ -480,6 +485,70 @@ namespace Network { namespace Client {
         {
             Protocol::MQTT::Common::VBInt l;
             return l.readFrom(buffers.recvBuffer() + 1, available - 1) != Protocol::MQTT::Common::BadData;
+        }
+
+
+
+        /** Update the usage value atomically by marking and checking for error and increasing or decreasing the count */
+        void exchangeUsage(int step, bool error)
+        {
+            // -C-
+            uint32 previous = usage.load(std::memory_order_acquire);
+            while (true)
+            {
+                uint32 next = (previous + step);
+                if (usage.compare_exchange_strong(previous, next))
+                {
+                    errored |= error;
+                    break;
+                }
+            }
+        }
+
+        ImplBase * acquire()
+        {
+            // First check without changing the counter
+            if (errored.load(std::memory_order_acquire)) return nullptr;
+            exchangeUsage(1, false);
+            // This double check here ensure sequence of event is respected
+            if (errored.load(std::memory_order_acquire))
+            {
+                // We need to release the counter we've acquired before returning
+                exchangeUsage(-1, true);
+                return nullptr;
+            }
+            return this;
+        }
+
+        ErrorType saveError(ErrorType forward)                   { errored = true; return forward; }
+        ErrorType release(ErrorType forward, bool error = false) { exchangeUsage(-1, error); return forward; }
+
+        ErrorType closeIfError(ErrorType forward)
+        {
+            // Check for error condition.
+            // Since once it's set, it can't be unset and that it's only set AFTER the pointer is released,
+            // it's safe to assume that we don't do anything if it's unset
+            bool inError = errored.load(std::memory_order_acquire);
+            if (!inError && forward == ErrorType::Success) return forward;
+
+            // Ok, here we had an error, so we need to clean up
+            // -A- if T1 reach here and T2 is at -C- or later, it'll acquire the pointer increasing the usage counter
+            // Mark the errored value anyway here so no other pointer can be taken from now
+            errored.store(1);
+            // -B- if T1 reach here and T2 is at -C-, we can clear the pointer since it can't acquire it anymore (acquire will check again the errored variable and fails there)
+
+            // If it's set, another pointer might be used, so loop until it's unreferenced
+            uint32 previous = usage.load(std::memory_order_acquire);
+            while (previous != 1)
+            {
+                // Yield here (using select) and retry
+                struct timeval tv = timeoutFromMs(1); // Wait 1ms per loop
+                select(0, NULL, NULL, NULL, &tv);
+                previous = usage.load(std::memory_order_acquire);
+            }
+            // Ok, here it's not possible for a publish to acquire anymore since it's errored and we've reached the use count of 1, we can safely clear the socket
+            close();
+            return forward;
         }
 
         /** Receive a control packet from the socket in the given time.
@@ -1104,10 +1173,12 @@ namespace Network { namespace Client {
             // Then connect the socket to the server
             int ret = socket->connect(Network::Address::URL("", String(host) + ":" + port, ""));
             if (ret < 0) return -6;
-            if (ret == 0) return 0;
-
             // Here, we need to wait until connection happens or times out
-            if (socket->select(false, true, timeoutMs)) return 0;
+            if (ret == 0 || socket->select(false, true, timeoutMs))
+            {
+                // Reset the usage count here, since we are the only user
+                this->usage.store(1); this->errored.store(0); return 0;
+            }
             return -7;
         }
     };
@@ -1471,7 +1542,10 @@ namespace Network { namespace Client {
                 withTLS ? new MBTLSSocket(timeoutMs) :
 #endif
                 new BaseSocket(timeoutMs);
-            return socket ? socket->connect(host, port, brokerCert, clientCert, clientKey) : -1;
+            if (!socket) return -1;
+            int ret = socket->connect(host, port, brokerCert, clientCert, clientKey);
+            if (!ret) { this->usage.store(1); this->errored.store(0); }// Reset usage count here
+            return ret;
         }
 
         int sendImpl(const char * buffer, const int size)
@@ -1643,7 +1717,7 @@ namespace Network { namespace Client {
             // since this method will be called from the authReceived callback
             return ErrorType::Success;
         }
-        return Protocol::MQTT::V5::ProtocolError;
+        return impl->saveError(Protocol::MQTT::V5::ProtocolError);
     }
 #endif
 
@@ -1687,7 +1761,7 @@ namespace Network { namespace Client {
 
         // Then send the packet
         if (ErrorType ret = impl->requestOneLoop(packet))
-            return ret;
+            return impl->saveError(ret);
 
         // Then extract the packet type
         Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
@@ -1695,10 +1769,10 @@ namespace Network { namespace Client {
         {
             Protocol::MQTT::V5::ROSubACKPacket rpacket;
             int ret = impl->extractControlPacket(type, rpacket);
-            if (ret <= 0) return ErrorType::NetworkError;
+            if (ret <= 0) return impl->saveError(ErrorType::NetworkError);
 
             if (rpacket.fixedVariableHeader.packetID != packet.fixedVariableHeader.packetID)
-                return ErrorType::NetworkError;
+                return impl->saveError(ErrorType::NetworkError);
 
             // Then check reason codes
             SubscribeTopic * topic = packet.payload.topics;
@@ -1712,7 +1786,7 @@ namespace Network { namespace Client {
             return ErrorType::Success;
         }
 
-        return MQTTv5::ErrorType::NetworkError;
+        return impl->saveError(ErrorType::NetworkError);
     }
 
 #if MQTTUseUnsubscribe == 1
@@ -1743,7 +1817,7 @@ namespace Network { namespace Client {
 
         // Then send the packet
         if (ErrorType ret = impl->requestOneLoop(packet))
-            return ret;
+            return impl->saveError(ret);
 
         // Then extract the packet type
         Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
@@ -1751,10 +1825,10 @@ namespace Network { namespace Client {
         {
             Protocol::MQTT::V5::ROUnsubACKPacket rpacket;
             int ret = impl->extractControlPacket(type, rpacket);
-            if (ret <= 0) return ErrorType::NetworkError;
+            if (ret <= 0) return impl->saveError(ErrorType::NetworkError);
 
             if (rpacket.fixedVariableHeader.packetID != packet.fixedVariableHeader.packetID)
-                return ErrorType::NetworkError;
+                return impl->saveError(ErrorType::NetworkError);
 
             // Then check reason codes
             uint32 count = rpacket.payload.size;
@@ -1767,7 +1841,7 @@ namespace Network { namespace Client {
             return ErrorType::Success;
         }
 
-        return MQTTv5::ErrorType::NetworkError;
+        return impl->saveError(ErrorType::NetworkError);
     }
 #endif
 
@@ -1776,9 +1850,6 @@ namespace Network { namespace Client {
     {
         if (topic == nullptr)
             return ErrorType::BadParameter;
-
-        if (!impl->isOpen()) return ErrorType::NotConnected;
-        if (impl->state != State::Running) return ErrorType::TranscientPacket;
 
         Protocol::MQTT::V5::PublishPacket packet;
         // Capture properties (to avoid copying them)
@@ -1799,13 +1870,21 @@ namespace Network { namespace Client {
         packet.header.setQoS((uint8)QoS);
 #endif
         packet.header.setDup(false); // At first, it's not a duplicate message
-        packet.fixedVariableHeader.packetID = withAnswer ? impl->allocatePacketID() : 0; // Only if QoS is not 0
         packet.fixedVariableHeader.topicName = topic;
         packet.payload.setExpectedPacketSize(payloadLength);
         packet.payload.readFrom(payload, payloadLength);
 
+        // Ok, shared code below
+        auto imp = impl->acquire();
+        if (!imp) return ErrorType::NetworkError;
+        if (!imp->isOpen()) return impl->release(ErrorType::NotConnected);
+        if (imp->state != State::Running) return impl->release(ErrorType::TranscientPacket);
+
+        packet.fixedVariableHeader.packetID = withAnswer ? imp->allocatePacketID() : 0; // Only if QoS is not 0
+
         // The publish cycle isn't run until the next event loop. This allow true asynchronous publishing
-        return impl->prepareSAR(packet, false, true);
+        ErrorType err = imp->prepareSAR(packet, false, true);
+        return impl->release(err, err != ErrorType::Success); // Mark as error here
     }
 
     // The client event loop you must call regularly.
@@ -1824,28 +1903,25 @@ namespace Network { namespace Client {
                 impl->setConnectionState(State::Pinging);
                 Protocol::MQTT::V5::PingReqPacket packet;
                 if (ErrorType ret = impl->requestOneLoop(packet))
-                    return ret;
+                    return impl->closeIfError(ret);
 
                 type = impl->getLastPacketType();
                 if (type == Protocol::MQTT::V5::PINGRESP)
                 {
                     Protocol::MQTT::V5::PingRespPacket rpacket;
                     int ret = impl->extractControlPacket(type, rpacket);
-                    if (ret <= 0) return ErrorType::NetworkError;
+                    if (ret <= 0) return impl->closeIfError(ErrorType::NetworkError);
                 }
                 // Ok, done for now
                 return ErrorType::Success;
             }
             // Check the server for any packet...
             int ret = impl->receiveControlPacket(true);
-            if (ret == 0)
-            {
-                impl->close();
-                return ErrorType::NotConnected;
-            }
+            if (ret == 0) return impl->closeIfError(ErrorType::NotConnected);
+
             // No answer in time, it's not an error here
             if (ret == -2) return ErrorType::Success;
-            if (ret < 0)   return ErrorType::NetworkError;
+            if (ret < 0)   return impl->closeIfError(ErrorType::NetworkError);
             // Ok, now we have a packet read it
             type = impl->getLastPacketType();
         }
@@ -1854,7 +1930,7 @@ namespace Network { namespace Client {
         if (ret == ErrorType::TranscientPacket)
             return ErrorType::Success;
 
-        return ret;
+        return impl->closeIfError(ret);
     }
 
     // Disconnect from the server
@@ -1878,7 +1954,7 @@ namespace Network { namespace Client {
 
         impl->setConnectionState(State::Disconnecting);
         if (ErrorType ret = impl->prepareSAR(packet, false))
-            return ret;
+            return impl->saveError(ret);
 
         // There is no need to wait for ACK for a disconnect
         impl->close();
@@ -1888,6 +1964,11 @@ namespace Network { namespace Client {
     void MQTTv5::setDefaultTimeout(const uint32 timeoutMs)
     {
         impl->setTimeout(timeoutMs);
+    }
+
+    void MQTTv5::setClientID(const char * clientID)
+    {
+        impl->clientID = clientID;
     }
 
 }}

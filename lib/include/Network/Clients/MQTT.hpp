@@ -152,7 +152,26 @@ namespace Network
 #ifndef HasMQTTv5Client
         /** A very simple MQTTv5 client.
             This client was made with a minimal binary size footprint in mind, yet with maximum performance.
-            Currently, only the bare protocol function are supported, but that should be enough to get you started.
+            It can be configured to only implement bare protocol functions (that's enough for usual usage pattern)
+            or a more complete featureset (you choose what method to add depending on your need).
+
+            Typically, you can add Quality Of Service feature, dynamic unsubscribing, and advanced authentication support.
+
+            Concerning multithreading and reentrancy support, this client is fully reentrant.
+            This means that you can call `publish` in the `messageReceived` callback, or `auth` in the `authReceived` callback.
+            The client is not protected by a global mutex (unlike in version 1.0) but its internal implementation is
+            protected against multithreaded access.
+
+            The expected usage pattern is to call `connectTo`, `auth`, `subscribe`, `unsubscribe` and `disconnect`
+            from the same thread that's calling `eventLoop`.
+            You can call `publish` from any thread.
+            In case of error, `publish` will return the error code but will not destruct the socket
+            Socket destruction will only happen in the next call to `eventLoop` and it's protected so it can't happen
+            while a `publish` operation is running.
+            When `eventLoop` returns with an error code, you can safely call `connectTo` to resume and restart the communication.
+
+            Notice however that you must not delete the client (if constructed on heap) while accessing from multiple thread.
+
 
             @warning By default, to minimize allocations, properties provided to the methods below are captured (swapped with an empty set).
                      If you want to avoid this, you'll need to clone them beforehand.
@@ -236,6 +255,8 @@ namespace Network
                 @param properties           If provided those properties will be sent along the connect packet. Allowed properties for connect packet are:
                                             Session expiry interval, Receive Maximum, Maximum Packet Size, Topic Alias Maximum,
                                             Request Response Information, Request Problem Information, User Property, Authentication Method, Authentication Data
+
+                @note This is expected to be called before the eventLoop thread is started or in the eventLoop thread.
                 @return An ErrorType */
             ErrorType connectTo(const char * serverHost, const uint16 port, bool useTLS = false, const uint16 keepAliveTimeInSec = 300,
                 const bool cleanStart = true, const char * userName = nullptr, const DynamicBinDataView * password = nullptr,
@@ -250,6 +271,8 @@ namespace Network
                 @param authData             The authentication data
                 @param properties           If provided those properties will be sent along the auth packet. Allowed properties for connect packet are:
                                             User Property, Reason string, Authentication Method, Authentication Data
+
+                @note This is expected to be called before the eventLoop thread is started or in the eventLoop thread. It's safe to call in the authReceived callback.
                 @return An ErrorType */
             ErrorType auth(const ReasonCodes reasonCode, const DynamicStringView & authMethod, const DynamicBinDataView & authData, Properties * properties = nullptr);
 #endif
@@ -268,6 +291,8 @@ namespace Network
                 @param withAutoFeedback     If true, if you publish on this topic, you'll receive your message as well
                 @param properties           If provided those properties will be sent along the subscribe packet. Allowed properties for subscribe packet are:
                                             Subscription Identifier, User property
+
+                @note This is expected to be called before the eventLoop thread is started or in the eventLoop thread.
                 @return An ErrorType */
             ErrorType subscribe(const char * topic, const RetainHandling retainHandling = RetainHandling::GetRetainedMessageForNewSubscriptionOnly, const bool withAutoFeedBack = false,
                                 const QoSDelivery maxAcceptedQoS = QoSDelivery::ExactlyOne, const bool retainAsPublished = true, Properties * properties = nullptr);
@@ -280,6 +305,8 @@ namespace Network
                                             The topics represent a chained list that are successively subscribed to.
                 @param properties           If provided those properties will be sent along the subscribe packet. Allowed properties for subscribe packet are:
                                             Subscription Identifier, User property
+
+                @note This is expected to be called before the eventLoop thread is started or in the eventLoop thread.
                 @return An ErrorType */
             ErrorType subscribe(SubscribeTopic & topics, Properties * properties = nullptr);
 
@@ -291,6 +318,8 @@ namespace Network
                                             @sa subscribe
                 @param properties           If provided those properties will be sent along the unsubscribe packet. Allowed properties for unsubscribe packet are:
                                             User property
+
+                @note This is expected to be called before the eventLoop thread is started or in the eventLoop thread.
                 @return A reason code or success */
             ErrorType unsubscribe(UnsubscribeTopic & topics, Properties * properties = nullptr);
 #endif
@@ -306,11 +335,10 @@ namespace Network
                                             Payload Format Indicator, Message Expiry Interval, Topic Alias,
                                             Response topic, Correlation Data, Subscription Identifier, User property, Content Type
                 @return An ErrorType
-                @note You can call this method anytime from anywhere (including from inside a messageReceived callback). However, you must observe the return type carefully
-                      If it is ErrorType::TranscientPacket, then this means that the publication failed and must be retried AFTER calling eventLoop, since a transcient
-                      packet was received while waiting for packet's ACK. If you publish inside a messageReceived callback, this means that you must return from it first,
-                      run the eventLoop again, THEN retry publishing (out of the messageReceived method, obviously). It would be probably easier to mutate a variable in the
-                      messageReceived callback and check this variable in the code that's calling eventLoop instead so it can publish from here. */
+                @note You can call this method anytime from anywhere (including from inside a messageReceived callback) and in a different thread.
+                      Upon an error return, the socket isn't closed automatically (since another thread might be publishing at the same time).
+                      The next call to eventLoop() in its thread will clear the socket, call the connectionLost() callback and that's where you'll be able to
+                      reconnect with connectTo()  */
             ErrorType publish(const char * topic, const uint8 * payload, const uint32 payloadLength, const bool retain = false, const QoSDelivery QoS = QoSDelivery::AtMostOne,
                               const uint16 packetIdentifier = 0, Properties * properties = nullptr);
 
@@ -328,6 +356,8 @@ namespace Network
                 @param code                 The disconnection reason
                 @param properties           If provided those properties will be sent along the disconnect packet. Allowed properties for publish packet are:
                                             Session Expiry Interval, Reason String, Server Reference, User property
+
+                @note This is expected to be called before the eventLoop thread is started or in the eventLoop thread.
                 @return An ErrorType */
             ErrorType disconnect(const ReasonCodes code, Properties * properties = nullptr);
 
@@ -359,6 +389,10 @@ namespace Network
                    const DynamicBinDataView * clientCert = 0, const DynamicBinDataView * clientKey = 0);
             /** Default destructor */
             ~MQTTv5();
+            /** Set the client ID explicitely.
+                This is used for reconnecting to a existing client session
+                @param clientID     A client identifier if you need to provide one. If empty or null, the broker will assign one on next connectTo call */
+            void setClientID(const char * clientID);
 
         };
 #define HasMQTTv5Client
