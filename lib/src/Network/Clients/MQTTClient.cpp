@@ -441,10 +441,15 @@ namespace Network { namespace Client {
         uint8               packetExpectedVBSize;
         /** The current MQTT state in the state machine */
         State::MQTT         state;
+#if MQTTMultithread == 1
         /** An atomic state used as a reference count for accessing the socket.
-            The default is 0=>unbuild, 1=>for built and then it tracks the current user count. High bit is used to mark the socket as error and prevent capturing for any usage */
+            The default is 0=>unbuild, 1=>for built and then it tracks the current user count. */
         std::atomic<uint32> usage;
         std::atomic<uint32> errored;
+#else
+        /** An error tracking status that's set on error on only reset on connection */
+        uint32 errored;
+#endif
 
         uint16 allocatePacketID()
         {
@@ -462,7 +467,12 @@ namespace Network { namespace Client {
                storage(storage),
 #endif
                recvState(Ready), maxPacketSize(65535), available(0), buffers(max(callback->maxPacketSize(), (uint32)8UL), min(callback->maxUnACKedPackets(), (uint32)127UL)),
-               packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), (uint32)8UL)).getSize()), state(State::Unknown), usage(0), errored(1)
+               packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), (uint32)8UL)).getSize()), state(State::Unknown)
+#if MQTTMultithread == 1
+               , usage(0), errored(1)
+#else
+               , errored(1)
+#endif
         {
 #if MQTTQoSSupportLevel == 1
             if (!storage) this->storage = new RingBufferStorage(buffers.size, buffers.packetsCount() * 2);
@@ -488,7 +498,7 @@ namespace Network { namespace Client {
         }
 
 
-
+#if MQTTMultithread == 1
         /** Update the usage value atomically by marking and checking for error and increasing or decreasing the count */
         void exchangeUsage(int step, bool error)
         {
@@ -522,6 +532,7 @@ namespace Network { namespace Client {
 
         ErrorType saveError(ErrorType forward)                   { errored = true; return forward; }
         ErrorType release(ErrorType forward, bool error = false) { exchangeUsage(-1, error); return forward; }
+        void resetState()                                        { usage.store(1); errored.store(false); }
 
         ErrorType closeIfError(ErrorType forward)
         {
@@ -550,6 +561,22 @@ namespace Network { namespace Client {
             close();
             return forward;
         }
+#else
+        inline ImplBase * acquire() { return this; }
+
+        ErrorType saveError(ErrorType forward)                   { errored = true; return forward; }
+        ErrorType release(ErrorType forward, bool error = false) { if (error) errored = true; return forward; }
+        void resetState()                                        { errored = false; }
+        ErrorType closeIfError(ErrorType forward)
+        {
+            if (!errored && forward == ErrorType::Success) return forward;
+            errored = true;
+            close();
+            return forward;
+        }
+#endif
+
+
 
         /** Receive a control packet from the socket in the given time.
             @retval positive    The number of bytes received
@@ -709,14 +736,13 @@ namespace Network { namespace Client {
 
         ErrorType sendAndReceive(const void * buffer, const uint32 packetSize, bool withAnswer)
         {
-            // Make sure we are on a clean receiving state
-            resetPacketReceivingState();
-
             if (send((const char*)buffer, packetSize) != packetSize)
                 return ErrorType::NetworkError;
 
             if (!withAnswer) return ErrorType::Success;
 
+            // Make sure we are on a clean receiving state
+            resetPacketReceivingState();
             // Next, we'll wait for server's CONNACK or AUTH coming here (or error)
             int receivedPacketSize = receiveControlPacket();
             if (receivedPacketSize <= 0)
@@ -1075,6 +1101,7 @@ namespace Network { namespace Client {
 #else
                 buffers.reset();
 #endif
+                resetState(); // Ok, from now on we can start publishing we aren't in an erroneous state anymore
                 return ErrorType::Success;
             }
             return Protocol::MQTT::V5::ProtocolError;
@@ -1174,11 +1201,7 @@ namespace Network { namespace Client {
             int ret = socket->connect(Network::Address::URL("", String(host) + ":" + port, ""));
             if (ret < 0) return -6;
             // Here, we need to wait until connection happens or times out
-            if (ret == 0 || socket->select(false, true, timeoutMs))
-            {
-                // Reset the usage count here, since we are the only user
-                this->usage.store(1); this->errored.store(0); return 0;
-            }
+            if (ret == 0 || socket->select(false, true, timeoutMs)) return 0;
             return -7;
         }
     };
@@ -1544,7 +1567,6 @@ namespace Network { namespace Client {
                 new BaseSocket(timeoutMs);
             if (!socket) return -1;
             int ret = socket->connect(host, port, brokerCert, clientCert, clientKey);
-            if (!ret) { this->usage.store(1); this->errored.store(0); }// Reset usage count here
             return ret;
         }
 

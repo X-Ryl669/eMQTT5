@@ -90,6 +90,19 @@
   #define MQTTLowLatency  0
 #endif
 
+
+/** Multithread access
+    If set to 1, publishing can happen in any thread, including the event loop thread.
+    You don't need to protect the client with a mutex, as long as the instance is alive, it'll handle multitheaded access fine.
+    All other operations (subscribing, connecting, authenticating, ...) must happen in the event loop thread.
+    If set to 0, the code to protect publishing is disabled and it can only happen safely from the same thread
+    that runs the event loop.
+
+    Default: 1 */
+#ifndef MQTTMultithread
+  #define MQTTMultithread 1
+#endif
+
 // The part below is for building only, it's made to generate a message so the configuration is visible at build time
 #if _DEBUG == 1
   #if MQTTUseAuth == 1

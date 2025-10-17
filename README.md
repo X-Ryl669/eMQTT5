@@ -50,9 +50,9 @@ An example software is provided that's implementing a complete MQTTv5 client in 
 There is no lock in this library (except for sending packet to ensure atomicity while publishing a packet). Since any action happens in the `eventLoop()` function (the `messageReceived` callback is called there), it's safe to publish in the callback (the code is re-entrant).
 It's safe to publish from the same thread as the one running the `eventLoop()` function.
 
-If you publish from a different thread than the event thread, the client state can change while publishing (for example if the `eventLoop` thread receives a DISCONNECT packet) meaning that the library can not garantee the result of the operation.
-As of version 2.0.0, a failure in publishing (like a network disconnection) will be reported to the calling code but the client socket will not be closed to avoid a use-after-free error.
-This means that you'll need to manually destruct the client after an error and this will likely require some sort of locking on your side in that multithreading case.
+If you publish from a different thread than the event thread, you should enable the MQTTMultithread configuration option (enabled by default).
+In that case, it's safe to publish from any thread as long as the client isn't destructed. In case of error, the event loop will notify the user code where it's possible to reconnect the client and resume communication safely. Notice that as soon as an error is detected, publishing thread will receive errors and will not publish any packet, nor store them in the packet buffer if QoS is involved.
+In short, as soon as the communication is in error, any publication is lost, whatever the QoS. When communication resumes, only the packets that were published before the error was detected **but** not acknowledged by the broker yet will be resent, as specified in the standard.
 
 Please notice that there's a lock for sending packets, so that 2 threads that are publishing simultaneously will be serialized and no interleaved data on the network layer could happen.
 You must not call the `eventLoop()` function from multiple threads since there's no lock for protecting data packet receiving.
