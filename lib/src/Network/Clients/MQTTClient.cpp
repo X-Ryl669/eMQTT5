@@ -1,5 +1,9 @@
 // We need our implementation
 #include <Network/Clients/MQTT.hpp>
+#if MQTTMultithread == 1 &&  __cplusplus >= 201703L
+  // If it's available, use the OS version of the shared mutex
+  #include <shared_mutex>
+#endif
 
 #if MQTTUseAuth == 1
   /** Used to track reentrancy in the AUTH recursive scheme */
@@ -389,6 +393,62 @@ namespace Network { namespace Client {
 
     }
 
+#if MQTTMultithread == 1
+#if __cplusplus < 201703L
+    struct SharedMutex
+    {
+        std::atomic<int> refcount{ 0 };
+        void acquireExclusive()
+        {
+            int val;
+            // Can only take a exclusive lock when refcount == 0
+            do { val = 0; } while (!refcount.compare_exchange_weak(val, -1, std::memory_order_acquire));
+        }
+
+        void releaseExclusive() { refcount.store(0, std::memory_order_release); }
+
+        bool tryAcquireShared() { return _acquireShared(true); }
+        void acquireShared()    { _acquireShared(false); }
+        bool _acquireShared(bool onlyTry)
+        {
+            int val = -1, c = 0;
+            do {
+                // Spin until the exclusive lock is released
+                while (val == -1) {
+                    val = refcount.load(std::memory_order_relaxed);
+                    c++;
+                    if (c == 512)
+                    {
+                        if (onlyTry) return false;
+                        // Backoff spinning here anyway
+                        struct timeval tv = timeoutFromMs(1);
+                        select(0, NULL, NULL, NULL, &tv);
+                        c = 0;
+                    }
+                }
+
+            } while (!refcount.compare_exchange_weak(val, val+1, std::memory_order_acquire));
+            return false;
+        }
+
+        void releaseShared()
+        {
+            refcount.fetch_sub(1, std::memory_order_release);
+        }
+    };
+#else
+    struct SharedMutex
+    {
+        std::shared_mutex mtx;
+        void acquireExclusive() { mtx.lock();       }
+        void releaseExclusive() { mtx.unlock();     }
+        void acquireShared()    { mtx.lock_shared(); }
+        bool tryAcquireShared() { return mtx.try_lock_shared(); }
+        void releaseShared()    { mtx.unlock_shared(); }
+    };
+#endif
+#endif
+
     /** Common base interface that's common to all implementation using CRTP to avoid code duplication */
     template <typename Child>
     struct ImplBase
@@ -441,14 +501,15 @@ namespace Network { namespace Client {
         uint8               packetExpectedVBSize;
         /** The current MQTT state in the state machine */
         State::MQTT         state;
+
 #if MQTTMultithread == 1
-        /** An atomic state used as a reference count for accessing the socket.
-            The default is 0=>unbuild, 1=>for built and then it tracks the current user count. */
-        std::atomic<uint32> usage;
-        std::atomic<uint32> errored;
+        /** Prevent other thread access to the implementation while publishing it */
+        SharedMutex         usage;
+        /** Is the client in error from a previous operation? */
+        std::atomic<uint32_t> errored;
 #else
-        /** An error tracking status that's set on error on only reset on connection */
-        uint32 errored;
+        /** Is the client in error from a previous operation? */
+        bool                errored;
 #endif
 
         uint16 allocatePacketID()
@@ -467,21 +528,26 @@ namespace Network { namespace Client {
                storage(storage),
 #endif
                recvState(Ready), maxPacketSize(65535), available(0), buffers(max(callback->maxPacketSize(), (uint32)8UL), min(callback->maxUnACKedPackets(), (uint32)127UL)),
-               packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), (uint32)8UL)).getSize()), state(State::Unknown)
-#if MQTTMultithread == 1
-               , usage(0), errored(1)
-#else
-               , errored(1)
-#endif
+               packetExpectedVBSize(Protocol::MQTT::Common::VBInt(max(callback->maxPacketSize(), (uint32)8UL)).getSize()), state(State::Unknown), errored(true)
         {
 #if MQTTQoSSupportLevel == 1
             if (!storage) this->storage = new RingBufferStorage(buffers.size, buffers.packetsCount() * 2);
 #else
             (void)storage; // Prevent variable unused warning
 #endif
+#if MQTTMultithread == 1
+            usage.acquireExclusive();
+#endif
         }
+#if MQTTQoSSupportLevel == 1 || MQTTMultithread == 1
+        ~ImplBase() {
 #if MQTTQoSSupportLevel == 1
-        ~ImplBase() { delete0(storage); }
+            delete0(storage);
+#endif
+#if MQTTMultithread == 1
+            if (errored) usage.releaseExclusive();
+#endif
+        }
 #endif
 
         bool shouldPing()
@@ -499,65 +565,22 @@ namespace Network { namespace Client {
 
 
 #if MQTTMultithread == 1
-        /** Update the usage value atomically by marking and checking for error and increasing or decreasing the count */
-        void exchangeUsage(int step, bool error)
-        {
-            // -C-
-            uint32 previous = usage.load(std::memory_order_acquire);
-            while (true)
-            {
-                uint32 next = (previous + step);
-                if (usage.compare_exchange_strong(previous, next))
-                {
-                    errored |= error;
-                    break;
-                }
-            }
-        }
-
-        ImplBase * acquire()
-        {
-            // First check without changing the counter
-            if (errored.load(std::memory_order_acquire)) return nullptr;
-            exchangeUsage(1, false);
-            // This double check here ensure sequence of event is respected
-            if (errored.load(std::memory_order_acquire))
-            {
-                // We need to release the counter we've acquired before returning
-                exchangeUsage(-1, true);
-                return nullptr;
-            }
-            return this;
-        }
+        ImplBase * acquire() { if (!usage.tryAcquireShared()) return nullptr;  if (errored) { usage.releaseShared(); return nullptr; } return this; }
 
         ErrorType saveError(ErrorType forward)                   { errored = true; return forward; }
-        ErrorType release(ErrorType forward, bool error = false) { exchangeUsage(-1, error); return forward; }
-        void resetState()                                        { usage.store(1); errored.store(false); }
+        ErrorType release(ErrorType forward, bool error = false) { errored |= error; usage.releaseShared(); return forward; }
+        void resetState()                                        { errored = false; usage.releaseExclusive(); }
 
         ErrorType closeIfError(ErrorType forward)
         {
             // Check for error condition.
             // Since once it's set, it can't be unset and that it's only set AFTER the pointer is released,
             // it's safe to assume that we don't do anything if it's unset
-            bool inError = errored.load(std::memory_order_acquire);
-            if (!inError && forward == ErrorType::Success) return forward;
+            if (!errored && forward == ErrorType::Success) return forward;
+            errored = true;
 
-            // Ok, here we had an error, so we need to clean up
-            // -A- if T1 reach here and T2 is at -C- or later, it'll acquire the pointer increasing the usage counter
-            // Mark the errored value anyway here so no other pointer can be taken from now
-            errored.store(1);
-            // -B- if T1 reach here and T2 is at -C-, we can clear the pointer since it can't acquire it anymore (acquire will check again the errored variable and fails there)
-
-            // If it's set, another pointer might be used, so loop until it's unreferenced
-            uint32 previous = usage.load(std::memory_order_acquire);
-            while (previous != 1)
-            {
-                // Yield here (using select) and retry
-                struct timeval tv = timeoutFromMs(1); // Wait 1ms per loop
-                select(0, NULL, NULL, NULL, &tv);
-                previous = usage.load(std::memory_order_acquire);
-            }
-            // Ok, here it's not possible for a publish to acquire anymore since it's errored and we've reached the use count of 1, we can safely clear the socket
+            // From now on, no publish thread can have a our pointer
+            usage.acquireExclusive();
             close();
             return forward;
         }
