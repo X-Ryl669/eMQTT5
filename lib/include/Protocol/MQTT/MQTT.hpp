@@ -550,17 +550,17 @@ namespace Protocol
             struct DynamicBinDataView Final : public Serializable, public SerializableVisitor<DynamicBinDataView>
             {
                 /** The string length in bytes */
-                uint16             length;
+                uint32             length;
                 /** The data itself */
                 const uint8   *    data;
 
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
-                uint32 getSize() const { return (uint32)length + 2; }
+                uint32 getSize() const { return length + 2; }
 
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 4 bytes long
                     @return The number of bytes used in the buffer */
-                uint32 copyInto(uint8 * buffer) const { uint16 size = BigEndian(length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, length); return (uint32)length + 2; }
+                uint32 copyInto(uint8 * buffer) const { uint16 size = BigEndian((uint16)length); memcpy(buffer, &size, 2); memcpy(buffer+2, data, (uint16)length); return length + 2; }
                 /** Read the value from a buffer.
                     @param buffer       A pointer to an allocated buffer that's at least 4 bytes long
                     @param bufLength    The length of the buffer in bytes
@@ -571,7 +571,7 @@ namespace Protocol
                 {
                     if (bufLength < 2) return NotEnoughData;
                     uint16 size = 0; memcpy(&size, buffer, 2); length = BigEndian(size);
-                    if ((uint32)(length+2) > bufLength) return NotEnoughData;
+                    if ((length+2) > bufLength) return NotEnoughData;
                     data = &buffer[2];
                     return (uint32)length + 2;
                 }
@@ -584,12 +584,12 @@ namespace Protocol
 #endif
 
                 /** Construct from a memory block */
-                DynamicBinDataView(const uint16 length = 0, const uint8 * block = 0) : length(length), data(block) { }
+                DynamicBinDataView(const uint32 length = 0, const uint8 * block = 0) : length(length), data(block) { }
                 /** Copy constructor */
                 DynamicBinDataView(const DynamicBinaryData & other) : length(other.length), data(other.data) { }
 
 
-                /** Capture from a dynamic string here.
+                /** Capture from a dynamic binary data here.
                     Beware of this method as the source must outlive this instance */
                 DynamicBinDataView & operator = (const DynamicBinaryData & source) { length = source.length; data = source.data; return *this; }
             };
@@ -620,12 +620,12 @@ namespace Protocol
 
 
                 /** Copy operator */
-                VBInt & operator =(const VBInt & other) 
+                VBInt & operator =(const VBInt & other)
                 {
-                    word = other.word; 
+                    word = other.word;
                     size = other.size;
                     return *this;
-                } 
+                }
 
                 /** Set the value. This algorithm is 26% faster compared to the basic method shown in the standard */
                 VBInt & operator = (uint32 other)
