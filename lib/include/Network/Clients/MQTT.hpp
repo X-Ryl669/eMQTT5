@@ -126,8 +126,9 @@ namespace Network
                 The default implementation doesn't do anything since this client doesn't store the credentials used for connection.
                 So it won't reconnect by itself. However, if you're reconnecting without destructing the client, the first call to the event loop will resend unACKed packets.
                 @note This is not compliant to continue using the client as if nothing happened after this function is called.
-                @param reasonCode       The reason for the disconnection if known */
-            virtual void connectionLost(const ReasonCodes reasonCode) {}
+                @param reasonCode       The reason for the disconnection if known
+                @param properties       A pointer to a property view in case of a DISCONNECT packet with such properties, or nullptr else */
+            virtual void connectionLost(const ReasonCodes reasonCode, const PropertiesView * properties) {}
 
 #if MQTTUseAuth == 1
             /** An authentication packet was received.
