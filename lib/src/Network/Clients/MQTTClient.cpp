@@ -735,10 +735,10 @@ namespace Network { namespace Client {
         inline const Child * that() const { return static_cast<const Child*>(this); }
 
 
-        void close(const Protocol::MQTT::V5::ReasonCodes code = Protocol::MQTT::V5::ReasonCodes::UnspecifiedError)
+        void close(const Protocol::MQTT::V5::ReasonCodes code = Protocol::MQTT::V5::ReasonCodes::UnspecifiedError, const Protocol::MQTT::V5::PropertiesView * properties = nullptr)
         {
             delete0(that()->socket);
-            cb->connectionLost(code);
+            cb->connectionLost(code, properties);
             state = State::Unknown;
         }
 
@@ -873,7 +873,7 @@ namespace Network { namespace Client {
                 Protocol::MQTT::V5::ReasonCodes reason = Protocol::MQTT::V5::NormalDisconnection;
                 int ret = extractControlPacket(type, packet);
                 if (ret > 0) reason = packet.fixedVariableHeader.reason();
-                close(reason);
+                close(reason, &packet.props);
                 return ErrorType::NotConnected; // No work to perform upon server sending disconnect
             }
 
