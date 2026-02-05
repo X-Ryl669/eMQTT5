@@ -552,7 +552,7 @@ namespace Network { namespace Client {
 
         bool shouldPing()
         {
-            return (((uint32)time(NULL) - lastCommunication) >= keepAlive);
+            return (((uint32)time(NULL) - lastCommunication + 5) >= keepAlive);
         }
 
         void setConnectionState(State::MQTT connState) { state = connState; }
@@ -642,7 +642,9 @@ namespace Network { namespace Client {
                 // Deal with timeout first
                 if (timeout == 0) return -2;
                 // Deal with socket errors here
-                if (ret < 0 || available < 2) return -1;
+                if (ret <= 0) return -1;
+                // In case of partial receiving, let's act like a timeout anyway
+                if (available < 2) return -2;
                 // Depending on the packet type, let's wait for more data
                 if (buffers.recvBuffer()[0] < 0xD0 || buffers.recvBuffer()[1]) // Below ping response or packet size larger than 2 bytes
                 {
@@ -689,7 +691,6 @@ namespace Network { namespace Client {
 #if MQTTDumpCommunication == 1
                 dumpBufferAsPacket("< Received packet", buffers.recvBuffer(), available);
 #endif
-                lastCommunication = (uint32)time(NULL);
                 return (int)available;
             }
             // No yet, but we probably timed-out.
@@ -762,6 +763,7 @@ namespace Network { namespace Client {
             if (send((const char*)buffer, packetSize) != packetSize)
                 return ErrorType::NetworkError;
 
+            lastCommunication = (uint32)time(NULL);
             if (!withAnswer) return ErrorType::Success;
 
             // Make sure we are on a clean receiving state
@@ -1045,7 +1047,7 @@ namespace Network { namespace Client {
                     case Protocol::MQTT::V5::ServerKeepAlive:
                     {
                         auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >();
-                        keepAlive = (pod->getValue() + (pod->getValue()>>1)) >> 1; // Use 0.75 of the server's told value
+                        keepAlive = pod->getValue();
                         break;
                     }
 #if MQTTUseAuth == 1
@@ -1646,7 +1648,7 @@ namespace Network { namespace Client {
         }
 
         // Create the header object now
-        impl->keepAlive = (keepAliveTimeInSec + (keepAliveTimeInSec / 2)) / 2; // Make it 75% of what's given so we always wake up before doom's clock
+        impl->keepAlive = keepAliveTimeInSec;
         packet.fixedVariableHeader.keepAlive = keepAliveTimeInSec;
         packet.fixedVariableHeader.cleanStart = cleanStart ? 1 : 0;
         packet.fixedVariableHeader.willFlag = willMessage != nullptr ? 1 : 0;
