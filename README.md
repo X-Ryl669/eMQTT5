@@ -25,7 +25,7 @@ For many reasons:
 | Client | Supported MQTT version | License | Compiled code size (with dependencies) | Cross platform |
 |--------|------------------------|---------|----------------------------------------|----------------|
 | [256dpi esp-mqtt](https://github.com/256dpi/esp-mqtt)|3.1|MIT|11kB (113kB + ?)| No (ESP32)|
-| [Espressif esp-mqtt](https://github.com/espressif/esp-mqtt)|3.1|Apache 2.0|12kB (115kb + ?)| No (ESP32)|
+| [Espressif esp-mqtt](https://github.com/espressif/esp-mqtt)|5.0|Apache 2.0|30kB| No (ESP32)|
 | [wolfMQTT](https://github.com/wolfSSL/wolfMQTT)|5.0|GPL 2.0|not tested due to license|Yes (Posix+Win32+Arduino)|
 | [mosquitto](https://github.com/eclipse/mosquitto/)|5.0|EPL|large | Yes requires Posix|
 | eMQTT5|5.0|MIT|<17kB (no dep)|Yes (Posix+Win32+Lwip(for ex: ESP32))|
