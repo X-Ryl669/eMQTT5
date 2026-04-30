@@ -29,6 +29,13 @@ jobs:
       - run:
           name: Unit Testing
           command: './build/tests/MQTTc'
+      - run:
+          name: Try different build configuration
+          command: 'sed -i "s/MQTTUseAuth 0/MQTTUseAuth 1/" ./lib/include/Network/Clients/MQTTConfig.hpp && sed -i "s/MQTTUseUnsubscribe 0/MQTTUseUnsubscribe 1/" lib/include/Network/Clients/MQTTConfig.hpp'
+      - run:
+          name: Rebuild with different configuration
+          command: 'cmake --build build'
+          
 # Orchestrate or schedule a set of jobs
 workflows:
   # Name the workflow "welcome"
