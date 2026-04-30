@@ -453,7 +453,15 @@ namespace Network { namespace Client {
     template <typename Child>
     struct ImplBase
     {
+        // Inject required types
         typedef MQTTv5::ErrorType ErrorType;
+        typedef Protocol::MQTT::V5::DynamicString               DynamicString;
+        typedef Protocol::MQTT::V5::DynamicStringView           DynamicStringView;
+        typedef Protocol::MQTT::V5::DynamicBinaryData           DynamicBinaryData;
+        typedef Protocol::MQTT::V5::DynamicBinDataView          DynamicBinDataView;
+        typedef Protocol::MQTT::V5::Properties                  Properties;
+        typedef Protocol::MQTT::V5::PropertiesView              PropertiesView;
+        typedef Protocol::MQTT::V5::ReasonCodes                 ReasonCodes;
 
         /** The DER encoded server certificate (if provided) */
         const Protocol::MQTT::Common::DynamicBinDataView *  brokerCert;
