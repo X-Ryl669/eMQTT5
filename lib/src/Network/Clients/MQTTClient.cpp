@@ -428,7 +428,7 @@ namespace Network { namespace Client {
                 }
 
             } while (!refcount.compare_exchange_weak(val, val+1, std::memory_order_acquire));
-            return false;
+            return true;
         }
 
         void releaseShared()
@@ -560,7 +560,7 @@ namespace Network { namespace Client {
 
         bool shouldPing()
         {
-            return (((uint32)time(NULL) - lastCommunication + 5) >= keepAlive);
+            return keepAlive && (( (uint32)time(NULL) - lastCommunication + 5) >= keepAlive);
         }
 
         void setConnectionState(State::MQTT connState) { state = connState; }
