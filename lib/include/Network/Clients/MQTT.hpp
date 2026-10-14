@@ -120,7 +120,7 @@ namespace Network
                 @return Defaults to 1 */
             virtual uint32 maxUnACKedPackets() const { return 1U; }
 
-            /** This is called upon disconnection.
+            /** This is called upon disconnection or on connection failure.
                 If any method detect a disconnection or a unexpected and fatal socket error, this will be called.
                 A standard client will likely reconnect here, and will resend any pending QoS packets.
                 The default implementation doesn't do anything since this client doesn't store the credentials used for connection.
