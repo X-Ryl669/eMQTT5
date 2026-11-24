@@ -1008,7 +1008,7 @@ namespace Network { namespace Client {
             return ErrorType::NetworkError;
         }
 #endif
-        ErrorType handleConnACK()
+        ErrorType handleConnACK(bool cleanStart)
         {
             // Parse the ConnACK packet;
             Protocol::MQTT::V5::ROConnACKPacket packet;
@@ -1016,10 +1016,12 @@ namespace Network { namespace Client {
             if (ret > 0)
             {
                 // We are only interested in the result of the connection
-                if (packet.fixedVariableHeader.acknowledgeFlag & 1)
-                {   // Session is present on the server. For now, we don't care, do we ?
-
+#if MQTTAvoidValidation != 1
+                if ((packet.fixedVariableHeader.acknowledgeFlag & 1) > 0 && cleanStart)
+                {   // Session is present on the server. But we asked for a clean start. It's an error, as in 3.2.2.1.1
+                    return ErrorType::NetworkError;
                 }
+#endif
                 if (packet.fixedVariableHeader.reasonCode != 0
 #if MQTTUseAuth == 1
                     && packet.fixedVariableHeader.reasonCode != Protocol::MQTT::V5::NotAuthorized
@@ -1044,9 +1046,25 @@ namespace Network { namespace Client {
                     case Protocol::MQTT::V5::PacketSizeMax:
                     {
                         auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint32> >();
+#if MQTTAvoidValidation != 1
+                        if (!pod->getValue())
+                            // This is a protocol error to have a 0 maximum packet size, as in 3.2.2.3.6
+                            return ErrorType::NetworkError;
+#endif
                         maxPacketSize = pod->getValue();
                         break;
                     }
+#if MQTTAvoidValidation != 1
+                    case Protocol::MQTT::V5::ReceiveMax:
+                    {
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >();
+                        if (!pod->getValue())
+                            // This is a protocol error to have a 0 maximum packet size, as in 3.2.2.3.3
+                            return ErrorType::NetworkError;
+                        // Note that we completely ignore this value, since we only have 1 QoSx publish in flight and the minimum value is 1 anyway.
+                        break;
+                    }
+#endif
                     case Protocol::MQTT::V5::AssignedClientID:
                     {
                         auto view = visitor.as< Protocol::MQTT::V5::DynamicStringView >();
@@ -1180,9 +1198,9 @@ namespace Network { namespace Client {
         /** The default timeout in milliseconds */
         uint32                  timeoutMs;
 
-        Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert,
-             const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey, PacketStorage * storage)
-             : ImplBase(clientID, callback, brokerCert, clientCert, clientKey, storage), socket(0), timeoutMs(3000) {}
+        Impl(const char * clientID, MessageReceived * callback, PacketStorage * storage, const DynamicBinDataView * brokerCert,
+             const DynamicBinDataView * clientCert, const DynamicBinDataView * clientKey)
+             : ImplBase(clientID, callback, storage, brokerCert, clientCert, clientKey), socket(0), timeoutMs(3000) {}
         ~Impl() { delete0(socket); }
 
         Time::TimeOut getTimeout() const { return timeoutMs; }
@@ -1683,7 +1701,7 @@ namespace Network { namespace Client {
         Protocol::MQTT::V5::ControlPacketType type = impl->getLastPacketType();
         if (type == Protocol::MQTT::V5::CONNACK)
         {
-            ErrorType ret = impl->handleConnACK();
+            ErrorType ret = impl->handleConnACK(cleanStart);
 
             if (ret != ErrorType::Success)
                 impl->close();
@@ -1703,7 +1721,7 @@ namespace Network { namespace Client {
                     type = impl->getLastPacketType();
                     if (type == Protocol::MQTT::V5::CONNACK)
                     {
-                        ErrorType ret = impl->handleConnACK();
+                        ErrorType ret = impl->handleConnACK(cleanStart);
                         if (ret != ErrorType::Success)
                             impl->close();
 
